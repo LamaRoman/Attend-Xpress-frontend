@@ -1,0 +1,1106 @@
+'use client'
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuth } from '@/contexts/auth-context'
+import { api } from '@/lib/api'
+import { subscriptionStatus } from '@/lib/subscription-status'
+import {
+  Shield,
+  Search,
+  RefreshCw,
+  ChevronDown,
+  CheckCircle,
+  Clock,
+  XCircle,
+  AlertTriangle,
+  Users,
+  Zap,
+  CreditCard,
+  StickyNote,
+  BarChart3,
+  Play,
+  ToggleRight,
+  ArrowLeft,
+  RotateCcw,
+  Banknote,
+} from 'lucide-react'
+
+// ── Types ─────────────────────────────────────────────────────
+interface OrgSub {
+  id: string
+  status: string
+  billingCycle: string
+  isPriceLockedForever: boolean
+  currentEmployeeCount: number
+  employeeCount: number
+  adminCount: number
+  customPricePerEmployee: number | null
+  customPriceExpiresAt: string | null
+  trialEndsAt: string | null
+  graceEndsAt: string | null
+  currentPeriodEnd: string | null
+  nextBillingDate: string | null
+  paidAt: string | null
+  setupFeeWaived: boolean
+  setupFeeWaivedNote: string | null
+  organization: { id: string; name: string; email: string }
+  plan: { tier: string; displayName: string; pricePerEmployee: number; maxEmployees: number }
+  adminNotes: Array<{ note: string; createdAt: string; createdBy: string }>
+}
+
+interface Pagination {
+  page: number
+  limit: number
+  total: number
+  pages: number
+}
+
+const STATUS_META: Record<
+  string,
+  { label: string; dot: string; badge: string; icon: typeof CheckCircle }
+> = {
+  ACTIVE: {
+    label: 'Active',
+    dot: 'bg-emerald-500',
+    badge: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    icon: CheckCircle,
+  },
+  TRIALING: {
+    label: 'Trial',
+    dot: 'bg-blue-500',
+    badge: 'bg-blue-50 text-blue-700 border-blue-200',
+    icon: Clock,
+  },
+  EXPIRED: {
+    label: 'Expired',
+    dot: 'bg-red-400',
+    badge: 'bg-red-50 text-red-700 border-red-200',
+    icon: XCircle,
+  },
+  GRACE_PERIOD: {
+    label: 'Grace Period',
+    badge: 'bg-amber-50 text-amber-700 border-amber-200',
+    dot: 'bg-amber-400',
+    icon: CheckCircle,
+  },
+  SUSPENDED: {
+    label: 'Suspended',
+    dot: 'bg-orange-400',
+    badge: 'bg-orange-50 text-orange-700 border-orange-200',
+    icon: AlertTriangle,
+  },
+  CANCELLED: {
+    label: 'Cancelled',
+    dot: 'bg-slate-400',
+    badge: 'bg-slate-100 text-slate-600 border-slate-200',
+    icon: XCircle,
+  },
+}
+
+const FEATURE_KEYS = [
+  { key: 'featureLeave', label: 'Leave Management' },
+  { key: 'featureFullPayroll', label: 'Basic Payroll' },
+  { key: 'featureReports', label: 'Basic Reports' },
+  { key: 'featurePayrollWorkflow', label: 'Payroll Workflow' },
+  { key: 'featureFileDownload', label: 'File Downloads' },
+  { key: 'featureNotifications', label: 'Notifications' },
+  { key: 'featureOnboarding', label: 'Onboarding' },
+  { key: 'featureManualCorrection', label: 'Manual Correction' },
+  { key: 'featureAuditLog', label: 'Audit Log' },
+  { key: 'featureRoster', label: 'Roster Management' },
+  { key: 'featureHolidays', label: 'Holiday Management' },
+  { key: 'featureMultiBranch', label: 'Multi-Branch' },
+  { key: 'featureFieldTracking', label: 'Field Staff Tracking (Live)' },
+  { key: 'featureRouteReplay', label: 'Route Replay' },
+  { key: 'featureStaticQR', label: 'Static QR' },
+  { key: 'featureRotatingQR', label: 'Rotating QR' },
+  { key: 'featureDownloadReports', label: 'Download Reports' },
+  { key: 'featureDownloadPayslips', label: 'Download Payslips' },
+  { key: 'featureDownloadAuditLog', label: 'Download Audit Log' },
+  { key: 'featureDownloadLeaveRecords', label: 'Download Leave Records' },
+  { key: 'featureDocumentUpload', label: 'Document Upload' },
+]
+
+export default function SuperAdminSubscriptionsPage() {
+  const { user, isLoading } = useAuth()
+  const router = useRouter()
+
+  const [subs, setSubs] = useState<OrgSub[]>([])
+  const [pagination, setPagination] = useState<Pagination | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState('')
+  const [success, setSuccess] = useState('')
+  const [error, setError] = useState('')
+  const [noteInput, setNoteInput] = useState<Record<string, string>>({})
+  const [priceInput, setPriceInput] = useState<Record<string, string>>({})
+  const [priceExpiry, setPriceExpiry] = useState<Record<string, string>>({})
+  const [suspendReason, setSuspendReason] = useState<Record<string, string>>({})
+  const [extendDays, setExtendDays] = useState<Record<string, string>>({})
+  const [forceTrial, setForceTrial] = useState<Record<string, boolean>>({})
+  const [billingCycleInput, setBillingCycleInput] = useState<Record<string, string>>({})
+  const [overrideLoading, setOverrideLoading] = useState('')
+  // Tracks which org's reset button is in "confirm" mode
+  const [resetConfirmId, setResetConfirmId] = useState<string | null>(null)
+  const [waiveReason, setWaiveReason] = useState<Record<string, string>>({})
+  // Available plans (for the tier dropdown) + the per-org selected tier.
+  const [plans, setPlans] = useState<Array<{ tier: string; displayName: string }>>([])
+  const [tierInput, setTierInput] = useState<Record<string, string>>({})
+
+  const toggleOverride = async (
+    orgId: string,
+    featureKey: string,
+    currentVal: boolean | null,
+    planVal: boolean,
+  ) => {
+    let nextVal: boolean | null
+    if (currentVal === null) nextVal = !planVal
+    else if (currentVal === !planVal) nextVal = planVal
+    else nextVal = null
+    const overrideKey = 'override' + featureKey.charAt(0).toUpperCase() + featureKey.slice(1)
+    setOverrideLoading(orgId + featureKey)
+    const res = await api.patch(
+      '/api/v1/super-admin/subscriptions/' + orgId + '/feature-overrides',
+      { [overrideKey]: nextVal },
+    )
+    setOverrideLoading('')
+    if (res.error) {
+      flash(res.error.message, true)
+    } else {
+      flash('Override updated')
+      loadSubs()
+    }
+  }
+
+  // Resets custom price + all feature overrides in two sequential calls
+  const resetToDefaults = async (sub: OrgSub) => {
+    const orgId = sub.organization.id
+    setActionLoading(orgId + 'reset')
+
+    // Build a payload that nulls every override key
+    const allNullOverrides = FEATURE_KEYS.reduce(
+      (acc, f) => {
+        const overrideKey = 'override' + f.key.charAt(0).toUpperCase() + f.key.slice(1)
+        return { ...acc, [overrideKey]: null }
+      },
+      {} as Record<string, null>,
+    )
+
+    const [priceRes, overrideRes] = await Promise.all([
+      api.patch(`/api/v1/super-admin/subscriptions/${orgId}/override-pricing`, {
+        customPricePerEmployee: null,
+      }),
+      api.patch(`/api/v1/super-admin/subscriptions/${orgId}/feature-overrides`, allNullOverrides),
+    ])
+
+    setActionLoading('')
+    setResetConfirmId(null)
+
+    if (priceRes.error || overrideRes.error) {
+      flash((priceRes.error ?? overrideRes.error)?.message ?? 'Reset failed', true)
+    } else {
+      flash('Reset to plan defaults')
+      loadSubs()
+    }
+  }
+
+  useEffect(() => {
+    if (!isLoading && (!user || user.role !== 'SUPER_ADMIN')) router.push('/login')
+  }, [user, isLoading, router])
+
+  useEffect(() => {
+    if (user?.role === 'SUPER_ADMIN') loadSubs()
+  }, [user, search, statusFilter])
+
+  // Load the available plans once so the tier dropdown reflects whatever tiers
+  // exist (FREE / STANDARD / OPERATIONS), rather than hardcoding a single one.
+  useEffect(() => {
+    if (user?.role !== 'SUPER_ADMIN') return
+    api.get('/api/v1/super-admin/plans').then((res) => {
+      if (res.data) setPlans(res.data as Array<{ tier: string; displayName: string }>)
+    })
+  }, [user])
+
+  const loadSubs = useCallback(async () => {
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (search) params.set('search', search)
+    if (statusFilter) params.set('status', statusFilter)
+    const res = await api.get(`/api/v1/super-admin/subscriptions?${params}`)
+    if (res.data) {
+      const d = res.data as { subscriptions: OrgSub[]; pagination: Pagination }
+      setSubs(d.subscriptions)
+      setPagination(d.pagination)
+    }
+    setLoading(false)
+  }, [search, statusFilter])
+
+  const flash = (msg: string, isError = false) => {
+    if (isError) {
+      setError(msg)
+      setTimeout(() => setError(''), 4000)
+    } else {
+      setSuccess(msg)
+      setTimeout(() => setSuccess(''), 4000)
+    }
+  }
+
+  const doAction = async (
+    orgId: string,
+    method: 'post' | 'patch',
+    path: string,
+    body: object,
+    label: string,
+  ) => {
+    setActionLoading(orgId + path)
+    const res =
+      method === 'post'
+        ? await api.post(`/api/v1/super-admin/subscriptions/${orgId}/${path}`, body)
+        : await api.patch(`/api/v1/super-admin/subscriptions/${orgId}/${path}`, body)
+    setActionLoading('')
+    if (res.error) {
+      flash(res.error.message, true)
+      return false
+    }
+    flash(label)
+    loadSubs()
+    return true
+  }
+
+  const runTrialJob = async () => {
+    setActionLoading('trial-job')
+    const res = await api.post('/api/v1/super-admin/subscriptions/run-trial-job', {})
+    setActionLoading('')
+    if (res.error) flash(res.error.message, true)
+    else flash('Trial expiry job completed')
+  }
+
+  return (
+    <div className="min-h-screen bg-white">
+      {/* Header */}
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white">
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="flex h-14 items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => router.push('/super-admin')}
+                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div className="h-4 w-px bg-slate-200" />
+              <Shield className="h-4 w-4 text-slate-900" />
+              <span className="text-sm font-semibold text-slate-900">Subscriptions</span>
+              <span className="text-slate-300">|</span>
+              <span className="text-xs text-slate-500">Organization billing management</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={loadSubs}
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Refresh
+              </button>
+              <button
+                onClick={runTrialJob}
+                disabled={actionLoading === 'trial-job'}
+                className="flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
+              >
+                <Play className="h-3.5 w-3.5" />
+                {actionLoading === 'trial-job' ? 'Running...' : 'Run Trial Job'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-6xl px-6 py-8">
+        {/* Alerts */}
+        {error && (
+          <div className="mb-5 flex items-center gap-2.5 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-rose-500" />
+            <span className="text-xs font-medium text-rose-700">{error}</span>
+          </div>
+        )}
+        {success && (
+          <div className="mb-5 flex items-center gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <CheckCircle className="h-4 w-4 shrink-0 text-emerald-500" />
+            <span className="text-xs font-medium text-emerald-700">{success}</span>
+          </div>
+        )}
+
+        {/* Stats strip */}
+        {pagination && (
+          <div className="mb-8 grid grid-cols-5 gap-0 overflow-hidden rounded-xl border border-slate-200">
+            {[
+              { label: 'Total Orgs', value: pagination.total, icon: Users },
+              {
+                label: 'Trialing',
+                value: subs.filter((s) => s.status === 'TRIALING').length,
+                icon: Clock,
+              },
+              {
+                label: 'Active',
+                value: subs.filter((s) => s.status === 'ACTIVE').length,
+                icon: CheckCircle,
+              },
+              {
+                label: 'Total Employees',
+                value: subs.reduce((sum, s) => sum + s.employeeCount, 0),
+                icon: Users,
+              },
+              {
+                label: 'Total Admins',
+                value: subs.reduce((sum, s) => sum + s.adminCount, 0),
+                icon: Shield,
+              },
+            ].map((s, i) => (
+              <div
+                key={s.label}
+                className={`bg-white px-5 py-4 ${i < 4 ? 'border-r border-slate-200' : ''}`}
+              >
+                <div className="mb-2 flex items-center gap-1.5">
+                  <s.icon className="h-3 w-3 text-slate-400" />
+                  <span className="text-[11px] font-medium text-slate-500">{s.label}</span>
+                </div>
+                <p className="text-xl font-semibold tracking-tight text-slate-900">
+                  {s.value.toLocaleString()}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Toolbar */}
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-semibold text-slate-900">All Subscriptions</h2>
+            {pagination && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                {pagination.total}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search organizations..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-56 rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-4 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
+              />
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200"
+            >
+              <option value="">All Statuses</option>
+              {Object.entries(STATUS_META).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Table */}
+        {loading ? (
+          <div className="flex items-center justify-center rounded-xl border border-slate-200 py-20">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-slate-800" />
+          </div>
+        ) : subs.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 p-16 text-center">
+            <p className="text-sm text-slate-500">No subscriptions found</p>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-slate-200">
+            {/* Table header */}
+            <div className="grid grid-cols-12 gap-4 border-b border-slate-200 bg-slate-50 px-5 py-2.5">
+              <div className="col-span-4 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                Organization
+              </div>
+              <div className="col-span-2 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                Plan
+              </div>
+              <div className="col-span-2 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                Users
+              </div>
+              <div className="col-span-2 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                Pricing
+              </div>
+              <div className="col-span-1 text-[11px] font-medium uppercase tracking-wider text-slate-500">
+                Status
+              </div>
+              <div className="col-span-1" />
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {subs.map((sub) => {
+                const meta = STATUS_META[sub.status] ?? STATUS_META['ACTIVE']
+                const isExpanded = expandedId === sub.organization.id
+                const effectivePrice =
+                  sub.customPricePerEmployee !== null
+                    ? sub.customPricePerEmployee
+                    : sub.plan.pricePerEmployee
+                const orgId = sub.organization.id
+
+                // Count how many feature overrides are active
+                const activeOverrides = FEATURE_KEYS.filter((f) => {
+                  const overrideKey = ('override' +
+                    f.key.charAt(0).toUpperCase() +
+                    f.key.slice(1)) as keyof OrgSub
+                  const v = (sub as any)[overrideKey]
+                  return v !== null && v !== undefined
+                }).length
+
+                const hasAnyOverride = sub.customPricePerEmployee !== null || activeOverrides > 0
+                const isResetConfirming = resetConfirmId === orgId
+
+                return (
+                  <div key={sub.id}>
+                    {/* Main row */}
+                    <div
+                      className="grid cursor-pointer grid-cols-12 items-center gap-4 px-5 py-3.5 transition-colors hover:bg-slate-50/50"
+                      onClick={() => setExpandedId(isExpanded ? null : orgId)}
+                    >
+                      <div className="col-span-4">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-medium text-slate-900">
+                            {sub.organization.name}
+                          </p>
+                        </div>
+                        <p className="mt-0.5 truncate text-xs text-slate-400">
+                          {sub.organization.email}
+                        </p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-xs font-medium text-slate-900">{sub.plan.displayName}</p>
+                        <p className="text-xs text-slate-400">{sub.billingCycle}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-sm font-medium text-slate-900">
+                          {sub.employeeCount + sub.adminCount}
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          {sub.adminCount} admin · {sub.employeeCount} emp
+                        </p>
+                      </div>
+                      <div className="col-span-2">
+                        {effectivePrice === 0 ? (
+                          <p className="text-xs font-medium text-slate-900">Free</p>
+                        ) : (
+                          <>
+                            <p className="text-xs font-medium text-slate-900">
+                              Rs. {effectivePrice}/emp
+                            </p>
+                            {sub.customPricePerEmployee !== null && (
+                              <p className="text-[10px] font-medium text-violet-600">
+                                Custom price
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      <div className="col-span-1">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${meta.badge}`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+                          {meta.label}
+                        </span>
+                        {(() => {
+                          const st = subscriptionStatus(sub)
+                          return st.daysLeft != null ? (
+                            <p
+                              className="mt-1 text-[10px] text-slate-400"
+                              title={st.primaryLine ?? undefined}
+                            >
+                              {st.daysLeft}d left
+                            </p>
+                          ) : null
+                        })()}
+                      </div>
+                      <div className="col-span-1 flex justify-end">
+                        <ChevronDown
+                          className={`h-4 w-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Expanded panel */}
+                    {isExpanded && (
+                      <div className="space-y-5 border-t border-slate-100 bg-slate-50/50 px-5 py-5">
+                        {/* ── Reset to defaults bar ── */}
+                        {hasAnyOverride && (
+                          <div
+                            className={`rounded-lg border transition-colors ${
+                              isResetConfirming
+                                ? 'border-amber-200 bg-amber-50'
+                                : 'border-slate-200 bg-white'
+                            }`}
+                          >
+                            {!isResetConfirming ? (
+                              /* Idle state — subtle strip */
+                              <div className="flex items-center justify-between px-4 py-2.5">
+                                <div className="flex items-center gap-2 text-xs text-slate-500">
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                  <span>
+                                    This org has
+                                    {sub.customPricePerEmployee !== null && activeOverrides > 0
+                                      ? ` a custom price and ${activeOverrides} feature override${activeOverrides > 1 ? 's' : ''}`
+                                      : sub.customPricePerEmployee !== null
+                                        ? ' a custom price override'
+                                        : ` ${activeOverrides} feature override${activeOverrides > 1 ? 's' : ''}`}{' '}
+                                    active.
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setResetConfirmId(orgId)
+                                  }}
+                                  className="rounded-md border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                                >
+                                  Reset to plan defaults
+                                </button>
+                              </div>
+                            ) : (
+                              /* Confirm state — shows exactly what will be wiped */
+                              <div className="space-y-3 px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                                  <p className="text-xs font-semibold text-amber-900">
+                                    Reset all overrides for{' '}
+                                    <span className="font-bold">{sub.organization.name}</span>?
+                                  </p>
+                                </div>
+
+                                {/* What will be cleared */}
+                                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                                  <div className="space-y-1">
+                                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                                      Custom pricing
+                                    </p>
+                                    {sub.customPricePerEmployee !== null ? (
+                                      <p className="text-slate-700">
+                                        Rs. {sub.customPricePerEmployee}/emp
+                                        <span className="ml-1 text-slate-400">→</span>
+                                        <span className="ml-1 text-slate-700">
+                                          Rs. {sub.plan.pricePerEmployee}/emp (
+                                          {sub.plan.displayName} default)
+                                        </span>
+                                      </p>
+                                    ) : (
+                                      <p className="text-slate-400">No custom price set</p>
+                                    )}
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                                      Feature overrides
+                                    </p>
+                                    {activeOverrides > 0 ? (
+                                      <p className="text-slate-700">
+                                        {activeOverrides} override{activeOverrides > 1 ? 's' : ''}{' '}
+                                        will revert to {sub.plan.displayName} plan defaults
+                                      </p>
+                                    ) : (
+                                      <p className="text-slate-400">No feature overrides set</p>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 border-t border-amber-200 pt-1">
+                                  <button
+                                    disabled={actionLoading === orgId + 'reset'}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      resetToDefaults(sub)
+                                    }}
+                                    className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-rose-700 disabled:opacity-50"
+                                  >
+                                    {actionLoading === orgId + 'reset'
+                                      ? 'Resetting...'
+                                      : 'Confirm reset'}
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setResetConfirmId(null)
+                                    }}
+                                    className="rounded-md border border-amber-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-slate-200 hover:bg-white hover:text-slate-900"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Top row — Plan & Trial + Override Pricing + Waive Setup Fee + Status Control */}
+                        <div className="grid grid-cols-4 gap-4">
+                          {/* Plan & Trial — tier dropdown + trial + billing cycle.
+                              The selected tier is sent to the assign-tier endpoint,
+                              which accepts any existing tier (FREE/STANDARD/OPERATIONS). */}
+                          <div>
+                            <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                              <Zap className="h-3 w-3" /> Plan & Trial
+                            </p>
+                            <div className="space-y-2">
+                              <select
+                                value={tierInput[orgId] ?? sub.plan.tier}
+                                onChange={(e) =>
+                                  setTierInput((p) => ({ ...p, [orgId]: e.target.value }))
+                                }
+                                className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                              >
+                                {plans.map((pl) => (
+                                  <option key={pl.tier} value={pl.tier}>
+                                    {pl.displayName}
+                                  </option>
+                                ))}
+                              </select>
+                              <label className="flex cursor-pointer select-none items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={forceTrial[orgId] ?? false}
+                                  onChange={(e) =>
+                                    setForceTrial((p) => ({ ...p, [orgId]: e.target.checked }))
+                                  }
+                                  className="h-3.5 w-3.5 rounded border-slate-300 text-slate-900 focus:ring-slate-200"
+                                />
+                                <span className="text-[11px] text-slate-500">
+                                  Start with trial
+                                </span>
+                              </label>
+                              <div className="flex overflow-hidden rounded-lg border border-slate-200 text-[11px] font-medium">
+                                <button
+                                  onClick={() =>
+                                    setBillingCycleInput((p) => ({ ...p, [orgId]: 'MONTHLY' }))
+                                  }
+                                  className={`flex-1 py-1.5 transition-colors ${(billingCycleInput[orgId] ?? sub.billingCycle ?? 'MONTHLY') === 'MONTHLY' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                                >
+                                  Monthly
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    setBillingCycleInput((p) => ({ ...p, [orgId]: 'ANNUAL' }))
+                                  }
+                                  className={`flex-1 py-1.5 transition-colors ${(billingCycleInput[orgId] ?? sub.billingCycle ?? 'MONTHLY') === 'ANNUAL' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                                >
+                                  Annual
+                                </button>
+                              </div>
+                              <button
+                                disabled={!!actionLoading}
+                                onClick={() =>
+                                  doAction(
+                                    orgId,
+                                    'post',
+                                    'assign-tier',
+                                    {
+                                      tier: tierInput[orgId] ?? sub.plan.tier,
+                                      billingCycle:
+                                        billingCycleInput[orgId] ?? sub.billingCycle ?? 'MONTHLY',
+                                      ...(forceTrial[orgId] ? { forceTrial: true } : {}),
+                                    },
+                                    'Plan updated',
+                                  )
+                                }
+                                className="w-full rounded-lg bg-slate-900 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
+                              >
+                                {actionLoading === orgId + 'assign-tier'
+                                  ? 'Saving...'
+                                  : 'Save Plan'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Override Pricing */}
+                          <div>
+                            <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                              <CreditCard className="h-3 w-3" /> Override Pricing
+                              {sub.isPriceLockedForever && (
+                                <span className="ml-auto rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-bold text-violet-700">
+                                  LOCKED
+                                </span>
+                              )}
+                            </p>
+                            {/* Active agreement info */}
+                            {sub.customPricePerEmployee !== null && sub.customPriceExpiresAt && (
+                              <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2">
+                                <p className="text-[11px] font-medium text-amber-800">
+                                  Rs. {sub.customPricePerEmployee}/emp until{' '}
+                                  {new Date(sub.customPriceExpiresAt).toLocaleDateString('en-GB', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    year: 'numeric',
+                                  })}
+                                </p>
+                                <p className="mt-0.5 text-[10px] text-amber-600">
+                                  Reverts to Rs. {sub.plan.pricePerEmployee}/emp on expiry
+                                </p>
+                              </div>
+                            )}
+                            <div className="space-y-2">
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                                  Rs.
+                                </span>
+                                <input
+                                  type="number"
+                                  placeholder={String(effectivePrice)}
+                                  value={priceInput[orgId] ?? ''}
+                                  onChange={(e) =>
+                                    setPriceInput((p) => ({ ...p, [orgId]: e.target.value }))
+                                  }
+                                  className="w-full rounded-lg border border-slate-200 py-2 pl-8 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-slate-200"
+                                />
+                              </div>
+                              <div>
+                                <p className="mb-1 text-[10px] text-slate-400">
+                                  Expiry date (optional)
+                                </p>
+                                <input
+                                  type="date"
+                                  value={priceExpiry[orgId] ?? ''}
+                                  min={new Date().toISOString().split('T')[0]}
+                                  onChange={(e) =>
+                                    setPriceExpiry((p) => ({ ...p, [orgId]: e.target.value }))
+                                  }
+                                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-slate-200"
+                                />
+                              </div>
+                              <button
+                                disabled={!!actionLoading}
+                                onClick={() =>
+                                  doAction(
+                                    orgId,
+                                    'patch',
+                                    'override-pricing',
+                                    {
+                                      customPricePerEmployee: priceInput[orgId]
+                                        ? Number(priceInput[orgId])
+                                        : null,
+                                      customPriceExpiresAt: priceExpiry[orgId]
+                                        ? new Date(priceExpiry[orgId]).toISOString()
+                                        : null,
+                                    },
+                                    'Pricing updated',
+                                  )
+                                }
+                                className="w-full rounded-lg bg-slate-900 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
+                              >
+                                {actionLoading === orgId + 'override-pricing'
+                                  ? 'Saving...'
+                                  : 'Set Price'}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Waive Setup Fee */}
+                          <div>
+                            <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                              <Banknote className="h-3 w-3" /> Waive Setup Fee
+                              {sub.setupFeeWaived && (
+                                <span className="ml-auto rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
+                                  WAIVED
+                                </span>
+                              )}
+                            </p>
+                            {sub.setupFeeWaived ? (
+                              <div className="space-y-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+                                <p className="text-[11px] font-medium text-emerald-700">
+                                  Setup fee has been waived
+                                </p>
+                                {sub.setupFeeWaivedNote && (
+                                  <p className="text-[11px] italic text-emerald-600">
+                                    "{sub.setupFeeWaivedNote}"
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                <input
+                                  type="text"
+                                  placeholder="Reason for waiving..."
+                                  value={waiveReason[orgId] ?? ''}
+                                  onChange={(e) =>
+                                    setWaiveReason((p) => ({ ...p, [orgId]: e.target.value }))
+                                  }
+                                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-slate-200"
+                                />
+                                <button
+                                  disabled={!!actionLoading || !waiveReason[orgId]?.trim()}
+                                  onClick={() =>
+                                    doAction(
+                                      orgId,
+                                      'patch',
+                                      'waive-setup-fee',
+                                      { reason: waiveReason[orgId] },
+                                      'Setup fee waived',
+                                    )
+                                  }
+                                  className="w-full rounded-lg border border-emerald-200 py-2 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-50"
+                                >
+                                  {actionLoading === orgId + 'waive-setup-fee'
+                                    ? 'Waiving...'
+                                    : 'Waive Setup Fee'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Status Control */}
+                          <div>
+                            <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                              <AlertTriangle className="h-3 w-3" /> Status Control
+                            </p>
+                            {sub.status !== 'SUSPENDED' ? (
+                              <div className="space-y-2">
+                                {(sub.status === 'TRIALING' || sub.status === 'GRACE_PERIOD') && (
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="365"
+                                      placeholder="Days to extend..."
+                                      value={extendDays[orgId] ?? ''}
+                                      onChange={(e) =>
+                                        setExtendDays((p) => ({ ...p, [orgId]: e.target.value }))
+                                      }
+                                      className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-slate-200"
+                                    />
+                                    <button
+                                      disabled={!!actionLoading || !extendDays[orgId]?.trim()}
+                                      onClick={() =>
+                                        doAction(
+                                          orgId,
+                                          'patch',
+                                          'extend-trial',
+                                          { days: parseInt(extendDays[orgId]) },
+                                          'Trial extended',
+                                        ).then(() => setExtendDays((p) => ({ ...p, [orgId]: '' })))
+                                      }
+                                      className="whitespace-nowrap rounded-lg border border-violet-200 px-3 py-2 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-50 disabled:opacity-50"
+                                    >
+                                      {actionLoading === orgId + 'extend-trial'
+                                        ? '...'
+                                        : 'Extend Trial'}
+                                    </button>
+                                  </div>
+                                )}
+                                <input
+                                  type="text"
+                                  placeholder="Reason for suspension..."
+                                  value={suspendReason[orgId] ?? ''}
+                                  onChange={(e) =>
+                                    setSuspendReason((p) => ({ ...p, [orgId]: e.target.value }))
+                                  }
+                                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-slate-200"
+                                />
+                                <button
+                                  disabled={!!actionLoading || !suspendReason[orgId]?.trim()}
+                                  onClick={() =>
+                                    doAction(
+                                      orgId,
+                                      'patch',
+                                      'suspend',
+                                      { reason: suspendReason[orgId] },
+                                      'Subscription suspended',
+                                    )
+                                  }
+                                  className="w-full rounded-lg border border-rose-200 py-2 text-xs font-medium text-rose-700 transition-colors hover:bg-rose-50 disabled:opacity-50"
+                                >
+                                  {actionLoading === orgId + 'suspend'
+                                    ? 'Suspending...'
+                                    : 'Suspend Subscription'}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                <button
+                                  disabled={!!actionLoading}
+                                  onClick={() =>
+                                    doAction(
+                                      orgId,
+                                      'patch',
+                                      'reactivate',
+                                      {},
+                                      'Subscription reactivated',
+                                    )
+                                  }
+                                  className="w-full rounded-lg border border-emerald-200 py-2 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:opacity-50"
+                                >
+                                  {actionLoading === orgId + 'reactivate'
+                                    ? 'Reactivating...'
+                                    : 'Reactivate Subscription'}
+                                </button>
+                                <button
+                                  disabled={!!actionLoading}
+                                  onClick={() =>
+                                    doAction(
+                                      orgId,
+                                      'patch',
+                                      'mark-expired',
+                                      {
+                                        reason:
+                                          suspendReason[orgId]?.trim() ||
+                                          'Manually expired by super admin',
+                                      },
+                                      'Marked as expired',
+                                    )
+                                  }
+                                  className="w-full rounded-lg border border-slate-300 py-2 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50"
+                                >
+                                  {actionLoading === orgId + 'mark-expired'
+                                    ? 'Expiring...'
+                                    : 'Mark as Expired'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Feature Overrides */}
+                        <div>
+                          <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                            <ToggleRight className="h-3 w-3" /> Feature Overrides
+                            <span className="ml-2 text-[10px] font-normal normal-case tracking-normal text-slate-400">
+                              Click to cycle: Plan Default → Force On → Force Off
+                            </span>
+                          </p>
+                          <div className="grid grid-cols-7 gap-1.5">
+                            {FEATURE_KEYS.map((f) => {
+                              const overrideKey = ('override' +
+                                f.key.charAt(0).toUpperCase() +
+                                f.key.slice(1)) as keyof OrgSub
+                              const overrideVal = (sub as any)[overrideKey] as boolean | null
+                              const planVal = (sub.plan as any)[f.key] as boolean | undefined
+                              const effectiveVal =
+                                overrideVal !== null && overrideVal !== undefined
+                                  ? overrideVal
+                                  : !!planVal
+                              const isOverridden = overrideVal !== null && overrideVal !== undefined
+                              return (
+                                <button
+                                  key={f.key}
+                                  onClick={() =>
+                                    toggleOverride(orgId, f.key, overrideVal ?? null, !!planVal)
+                                  }
+                                  disabled={overrideLoading === orgId + f.key}
+                                  className={`flex flex-col items-start gap-1 rounded-lg border px-2.5 py-2 text-[11px] transition-colors ${
+                                    isOverridden
+                                      ? effectiveVal
+                                        ? 'border-emerald-200 bg-emerald-50'
+                                        : 'border-rose-200 bg-rose-50'
+                                      : 'border-slate-200 bg-white hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <div className="flex w-full items-center gap-1.5">
+                                    <span
+                                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${effectiveVal ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                                    />
+                                    {isOverridden && (
+                                      <span
+                                        className={`ml-auto text-[9px] font-bold ${effectiveVal ? 'text-emerald-600' : 'text-rose-600'}`}
+                                      >
+                                        {effectiveVal ? 'ON' : 'OFF'}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span
+                                    className={`leading-tight ${isOverridden ? 'font-semibold text-slate-900' : 'text-slate-500'}`}
+                                  >
+                                    {f.label}
+                                  </span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Admin Notes + Billing log */}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                              <StickyNote className="h-3 w-3" /> Admin Notes
+                            </p>
+                            <div className="mb-3 flex gap-2">
+                              <input
+                                type="text"
+                                placeholder="Add a note..."
+                                value={noteInput[orgId] ?? ''}
+                                onChange={(e) =>
+                                  setNoteInput((p) => ({ ...p, [orgId]: e.target.value }))
+                                }
+                                className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-slate-200"
+                              />
+                              <button
+                                disabled={!!actionLoading || !noteInput[orgId]?.trim()}
+                                onClick={async () => {
+                                  const ok = await doAction(
+                                    orgId,
+                                    'post',
+                                    'notes',
+                                    { note: noteInput[orgId] },
+                                    'Note added',
+                                  )
+                                  if (ok) setNoteInput((p) => ({ ...p, [orgId]: '' }))
+                                }}
+                                className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
+                              >
+                                {actionLoading === orgId + 'notes' ? '...' : 'Add'}
+                              </button>
+                            </div>
+                            {sub.adminNotes.length > 0 && (
+                              <div className="space-y-1.5">
+                                {sub.adminNotes.slice(0, 3).map((n, i) => (
+                                  <div
+                                    key={i}
+                                    className="flex items-start justify-between border-b border-slate-100 py-1.5 last:border-0"
+                                  >
+                                    <p className="text-xs text-slate-600">{n.note}</p>
+                                    <span className="ml-3 shrink-0 text-[10px] text-slate-400">
+                                      {new Date(n.createdAt).toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-col">
+                            <p className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                              <BarChart3 className="h-3 w-3" /> Billing Log
+                            </p>
+                            <button
+                              onClick={() =>
+                                router.push(`/super-admin/subscriptions/${orgId}/billing-log`)
+                              }
+                              className="group flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                            >
+                              View full billing history
+                              <BarChart3 className="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-600" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

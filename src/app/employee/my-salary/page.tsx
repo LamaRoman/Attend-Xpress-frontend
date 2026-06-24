@@ -1,0 +1,1352 @@
+﻿'use client'
+import { getDaysInBSMonth } from '../../payroll/utils'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuth } from '@/contexts/auth-context'
+import { api } from '@/lib/api'
+import { t } from '@/lib/i18n'
+import {
+  Calendar,
+  Clock,
+  FileText,
+  TrendingUp,
+  DollarSign,
+  AlertCircle,
+  ExternalLink,
+  ChevronLeft,
+  Download,
+  X,
+  Lock,
+} from 'lucide-react'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+
+const BS_MONTHS_EN = [
+  'Baisakh',
+  'Jestha',
+  'Ashadh',
+  'Shrawan',
+  'Bhadra',
+  'Ashwin',
+  'Kartik',
+  'Mangsir',
+  'Poush',
+  'Magh',
+  'Falgun',
+  'Chaitra',
+]
+const BS_MONTHS_NP = [
+  'बैशाख',
+  'जेठ',
+  'असार',
+  'श्रावण',
+  'भाद्र',
+  'आश्विन',
+  'कार्तिक',
+  'मंसिर',
+  'पौष',
+  'माघ',
+  'फाल्गुन',
+  'चैत्र',
+]
+
+const statusColors: Record<string, string> = {
+  DRAFT: 'bg-slate-100 text-slate-600',
+  PROCESSED: 'bg-blue-100 text-blue-700',
+  APPROVED: 'bg-emerald-100 text-emerald-700',
+  PAID: 'bg-violet-100 text-violet-700',
+}
+
+export default function MySalaryHistoryPage() {
+  const { user, isLoading, language, features } = useAuth()
+  const canDownloadPayslips = features.downloadPayslips
+  const router = useRouter()
+  const lang = language
+  const now = new Date()
+  const currentBsYear = now.getMonth() >= 3 ? now.getFullYear() + 57 : now.getFullYear() + 56
+
+  const [salaryData, setSalaryData] = useState<any>(null)
+  const [loadingData, setLoadingData] = useState(false)
+  const [error, setError] = useState('')
+
+  const [fromYear, setFromYear] = useState(currentBsYear)
+  const [fromMonth, setFromMonth] = useState(1)
+  const [toYear, setToYear] = useState(currentBsYear)
+  const [toMonth, setToMonth] = useState(10)
+
+  const [summaryDownloading, setSummaryDownloading] = useState(false)
+  const [filterMode, setFilterMode] = useState<'monthly' | 'range'>('range')
+  const [singleYear, setSingleYear] = useState(currentBsYear)
+  const [singleMonth, setSingleMonth] = useState(1)
+
+  const [showSummaryTooltip, setShowSummaryTooltip] = useState(false)
+  const [showRowTooltip, setShowRowTooltip] = useState<string | null>(null)
+  const [earliestBsYear, setEarliestBsYear] = useState<number | null>(null)
+
+  // Payslip detail modal state
+  const [selectedPayslip, setSelectedPayslip] = useState<{
+    monthData: any
+    bsYear: number
+    bsMonth: number
+  } | null>(null)
+
+  useEffect(() => {
+    api.get('/api/v1/payroll/my-earliest-year').then((res) => {
+      if (!res.error && (res.data as any)?.earliestBsYear) {
+        setEarliestBsYear((res.data as any).earliestBsYear)
+      } else {
+        setEarliestBsYear(currentBsYear)
+      }
+    })
+  }, [])
+
+  const fmtDisplay = (n: number) =>
+    n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+
+  const fmtPDF = (n: number) =>
+    n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  const loadSalaryData = async () => {
+    setLoadingData(true)
+    setError('')
+    const fY = filterMode === 'monthly' ? singleYear : fromYear
+    const fM = filterMode === 'monthly' ? singleMonth : fromMonth
+    const tY = filterMode === 'monthly' ? singleYear : toYear
+    const tM = filterMode === 'monthly' ? singleMonth : toMonth
+    const totalMonths = (tY - fY) * 12 + (tM - fM) + 1
+    if (totalMonths > 12) {
+      setError('Maximum 12 months allowed. Please narrow your range.')
+      setLoadingData(false)
+      return
+    }
+    if (totalMonths < 1) {
+      setError('"From" date must be before "To" date.')
+      setLoadingData(false)
+      return
+    }
+    try {
+      const res = await api.get(
+        `/api/v1/payroll/my-multi-month?fromBsYear=${fY}&fromBsMonth=${fM}&toBsYear=${tY}&toBsMonth=${tM}`,
+      )
+      if (res.error) throw new Error(res.error.message)
+      setSalaryData(res.data)
+    } catch (e: any) {
+      setError(e.message || 'Failed to load salary data')
+    }
+    setLoadingData(false)
+  }
+
+  // ── Client-side PDF generation ──
+  const downloadSummaryPDF = () => {
+    if (!salaryData || !employeeData) return
+    setSummaryDownloading(true)
+    try {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' })
+      const pageW = doc.internal.pageSize.getWidth()
+
+      doc.setFillColor(15, 23, 42)
+      doc.rect(0, 0, pageW, 64, 'F')
+      doc.setTextColor(255, 255, 255)
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(16)
+      doc.text(
+        (user as any)?.organizationName || user?.organization?.name || 'Organization',
+        36,
+        28,
+      )
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8)
+      doc.setTextColor(148, 163, 184)
+      doc.text('SALARY SUMMARY REPORT', pageW - 36, 20, { align: 'right' })
+
+      const fromLabel = BS_MONTHS_EN[fromMonth - 1] + ' ' + fromYear
+      const toLabel = BS_MONTHS_EN[toMonth - 1] + ' ' + toYear
+      const rangeLabel = fromLabel + ' — ' + toLabel
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10)
+      doc.setTextColor(255, 255, 255)
+      doc.text(rangeLabel, pageW - 36, 34, { align: 'right' })
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8)
+      doc.setTextColor(16, 185, 129)
+      doc.text('Generated: ' + new Date().toLocaleDateString('en-IN'), pageW - 36, 48, {
+        align: 'right',
+      })
+
+      let y = 80
+      doc.setFillColor(248, 250, 252)
+      doc.rect(36, y, pageW - 72, 40, 'F')
+      doc.setDrawColor(226, 232, 240)
+      doc.rect(36, y, pageW - 72, 40, 'S')
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.setTextColor(30, 41, 59)
+      doc.text((user?.firstName || '') + ' ' + (user?.lastName || ''), 50, y + 16)
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(8.5)
+      doc.setTextColor(100, 116, 139)
+      doc.text('Employee ID: ' + (user?.employeeId || 'N/A'), 50, y + 30)
+      doc.text(
+        employeeData.totals.monthsProcessed + ' months processed  |  Range: ' + rangeLabel,
+        pageW - 50,
+        y + 16,
+        { align: 'right' },
+      )
+
+      y += 56
+      const cardW = (pageW - 72 - 12) / 4
+      const cardH = 48
+      const cardGap = 4
+      const cards = [
+        {
+          label: 'TOTAL NET SALARY',
+          value: 'Rs. ' + fmtPDF(employeeData.totals.netSalary),
+          color: [16, 185, 129] as [number, number, number],
+        },
+        {
+          label: 'TOTAL GROSS SALARY',
+          value: 'Rs. ' + fmtPDF(employeeData.totals.grossSalary),
+          color: [15, 23, 42] as [number, number, number],
+        },
+        {
+          label: 'TOTAL DEDUCTIONS',
+          value: 'Rs. ' + fmtPDF(employeeData.totals.totalDeductions),
+          color: [225, 29, 72] as [number, number, number],
+        },
+        {
+          label: 'AVG NET / MONTH',
+          value:
+            'Rs. ' +
+            fmtPDF(
+              employeeData.totals.monthsProcessed > 0
+                ? Math.round(employeeData.totals.netSalary / employeeData.totals.monthsProcessed)
+                : 0,
+            ),
+          color: [15, 23, 42] as [number, number, number],
+        },
+      ]
+      cards.forEach((card, i) => {
+        const cx = 36 + i * (cardW + cardGap)
+        doc.setFillColor(248, 250, 252)
+        doc.rect(cx, y, cardW, cardH, 'F')
+        doc.setDrawColor(226, 232, 240)
+        doc.rect(cx, y, cardW, cardH, 'S')
+        doc.setFillColor(...card.color)
+        doc.rect(cx, y, cardW, 3, 'F')
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(6.5)
+        doc.setTextColor(100, 116, 139)
+        doc.text(card.label, cx + 8, y + 14)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9)
+        doc.setTextColor(...card.color)
+        doc.text(card.value, cx + 8, y + 30)
+      })
+
+      y += cardH + 16
+      const deductCards = [
+        { label: 'Employee SSF Total', value: 'Rs. ' + fmtPDF(employeeData.totals.employeeSsf) },
+        { label: 'Employee PF Total', value: 'Rs. ' + fmtPDF(employeeData.totals.employeePf) },
+        { label: 'TDS Total', value: 'Rs. ' + fmtPDF(employeeData.totals.tds) },
+        { label: 'Months Processed', value: employeeData.totals.monthsProcessed + ' months' },
+      ]
+      const dCardW = (pageW - 72 - 12) / 4
+      const dCardH = 36
+      deductCards.forEach((card, i) => {
+        const cx = 36 + i * (dCardW + cardGap)
+        doc.setFillColor(255, 255, 255)
+        doc.rect(cx, y, dCardW, dCardH, 'F')
+        doc.setDrawColor(226, 232, 240)
+        doc.rect(cx, y, dCardW, dCardH, 'S')
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(6.5)
+        doc.setTextColor(100, 116, 139)
+        doc.text(card.label.toUpperCase(), cx + 8, y + 12)
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9)
+        doc.setTextColor(30, 41, 59)
+        doc.text(card.value, cx + 8, y + 26)
+      })
+
+      y += dCardH + 16
+      const tableRows: any[] = []
+      salaryData.months.forEach((m: any) => {
+        const monthKey = m.bsYear + '-' + m.bsMonth
+        const md = employeeData.months[monthKey]
+        const monthName = BS_MONTHS_EN[m.bsMonth - 1] + ' ' + m.bsYear
+        if (!md) {
+          tableRows.push([monthName, '--', '--', '--', '--', '--', '--', '--', '--', '--'])
+          return
+        }
+        const allowances =
+          md.allowancesTotal ??
+          (md.dearnessAllowance || 0) +
+            (md.transportAllowance || 0) +
+            (md.medicalAllowance || 0) +
+            (md.otherAllowances || 0)
+        tableRows.push([
+          monthName,
+          (getDaysInBSMonth(m.bsYear, m.bsMonth) - md.daysAbsent) + '/' + getDaysInBSMonth(m.bsYear, m.bsMonth),
+          fmtPDF(md.basicSalary),
+          fmtPDF(allowances),
+          fmtPDF(md.grossSalary),
+          fmtPDF(md.employeeSsf || 0),
+          fmtPDF(md.employeePf || 0),
+          fmtPDF(md.tds || 0),
+          fmtPDF(md.totalDeductions),
+          fmtPDF(md.netSalary),
+        ])
+      })
+      tableRows.push([
+        'TOTAL',
+        employeeData.totals.monthsProcessed + ' mo',
+        fmtPDF(employeeData.totals.basicSalary),
+        '--',
+        fmtPDF(employeeData.totals.grossSalary),
+        fmtPDF(employeeData.totals.employeeSsf),
+        fmtPDF(employeeData.totals.employeePf),
+        fmtPDF(employeeData.totals.tds),
+        fmtPDF(employeeData.totals.totalDeductions),
+        fmtPDF(employeeData.totals.netSalary),
+      ])
+
+      autoTable(doc, {
+        startY: y,
+        margin: { left: 36, right: 36 },
+        head: [
+          [
+            'Month',
+            'Days',
+            'Basic',
+            'Allowances',
+            'Gross',
+            'SSF',
+            'PF',
+            'TDS',
+            'Total Ded.',
+            'Net Salary',
+          ],
+        ],
+        body: tableRows,
+        styles: { fontSize: 7.5, cellPadding: 4, font: 'helvetica', textColor: [30, 41, 59] },
+        headStyles: {
+          fillColor: [15, 23, 42],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 7,
+        },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 68 },
+          1: { halign: 'center', cellWidth: 32 },
+          2: { halign: 'right' },
+          3: { halign: 'right' },
+          4: { halign: 'right', fontStyle: 'bold' },
+          5: { halign: 'right', textColor: [225, 29, 72] },
+          6: { halign: 'right', textColor: [225, 29, 72] },
+          7: { halign: 'right', textColor: [225, 29, 72] },
+          8: { halign: 'right', textColor: [225, 29, 72] },
+          9: { halign: 'right', fontStyle: 'bold', textColor: [16, 185, 129] },
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        didParseCell: (data) => {
+          if (data.row.index === tableRows.length - 1 && data.section === 'body') {
+            data.cell.styles.fillColor = [15, 23, 42]
+            data.cell.styles.textColor = [255, 255, 255]
+            data.cell.styles.fontStyle = 'bold'
+            if (data.column.index === 9) data.cell.styles.textColor = [16, 185, 129]
+          }
+        },
+      })
+
+      const finalY = doc.internal.pageSize.getHeight()
+      doc.setFillColor(15, 23, 42)
+      doc.rect(0, finalY - 28, pageW, 28, 'F')
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(7.5)
+      doc.setTextColor(148, 163, 184)
+      doc.text(
+        ((user as any)?.organizationName || user?.organization?.name || 'Organization') +
+          '  •  ' +
+          rangeLabel +
+          '  •  Generated ' +
+          new Date().toLocaleString('en-IN'),
+        pageW / 2,
+        finalY - 10,
+        { align: 'center' },
+      )
+
+      doc.save(`salary-summary-${fromYear}-${fromMonth}-to-${toYear}-${toMonth}.pdf`)
+    } catch (e: any) {
+      setError('Could not generate summary PDF: ' + e.message)
+    }
+    setSummaryDownloading(false)
+  }
+
+  // ── Per-row payslip PDF preview ──
+  const [preview, setPreview] = useState<{ blobUrl: string; filename: string } | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  const openPreview = async (recordId: string, bsYear: number, bsMonth: number) => {
+    setPreviewLoading(true)
+    const url =
+      (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001') +
+      `/api/v1/payroll/my-payslip/${recordId}/pdf`
+    try {
+      const res = await fetch(url, {
+        credentials: 'include',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      })
+      if (!res.ok) throw new Error('Failed to load PDF')
+      const blob = await res.blob()
+      setPreview({
+        blobUrl: URL.createObjectURL(blob),
+        filename: `payslip-${bsYear}-${bsMonth}.pdf`,
+      })
+    } catch {
+      setError('Could not load PDF preview')
+    }
+    setPreviewLoading(false)
+  }
+
+  const closePreview = () => {
+    if (preview) URL.revokeObjectURL(preview.blobUrl)
+    setPreview(null)
+  }
+
+  const downloadFromPreview = () => {
+    if (!preview) return
+    const a = document.createElement('a')
+    a.href = preview.blobUrl
+    a.download = preview.filename
+    a.click()
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50">
+        <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-emerald-500" />
+      </div>
+    )
+  }
+
+  if (!user) return null
+
+  const employeeData = salaryData?.employees?.[0]
+  const tooltipMsg = t('payroll.pdfAvailable', lang)
+  const yearRange = Array.from(
+    { length: currentBsYear + 1 - (earliestBsYear ?? currentBsYear) + 1 },
+    (_, i) => (earliestBsYear ?? currentBsYear) + i,
+  )
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
+      {/* ── Payslip Detail Modal (click a row to open) ── */}
+      {selectedPayslip && (
+        <EmployeePayslipModal
+          monthData={selectedPayslip.monthData}
+          bsYear={selectedPayslip.bsYear}
+          bsMonth={selectedPayslip.bsMonth}
+          language={lang}
+          canDownloadPayslips={canDownloadPayslips}
+          fmtDisplay={fmtDisplay}
+          onClose={() => setSelectedPayslip(null)}
+          onViewPdf={() => {
+            setSelectedPayslip(null)
+            openPreview(
+              selectedPayslip.monthData.id,
+              selectedPayslip.bsYear,
+              selectedPayslip.bsMonth,
+            )
+          }}
+        />
+      )}
+
+      {/* ── Payslip PDF Preview Modal ── */}
+      {(preview || previewLoading) && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/80 backdrop-blur-sm">
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-slate-900 p-1.5">
+                <FileText className="h-4 w-4 text-white" />
+              </div>
+              <span className="text-sm font-semibold text-slate-900">
+                {preview?.filename || t('common.loading', lang)}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {preview && (
+                <button
+                  onClick={downloadFromPreview}
+                  className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
+                >
+                  <Download className="h-4 w-4" />
+                  {t('payroll.download', lang)}
+                </button>
+              )}
+              <button
+                onClick={closePreview}
+                className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            {previewLoading ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3">
+                <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-white" />
+                <p className="text-sm text-white">{t('common.loading', lang)}</p>
+              </div>
+            ) : preview ? (
+              <iframe
+                src={preview.blobUrl}
+                className="h-full w-full border-0"
+                title="Payslip Preview"
+              />
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* ── Page Header ── */}
+      <header className="sticky top-0 z-40 border-b border-gray-100 bg-white/80 backdrop-blur-md">
+        <div className="mx-auto max-w-5xl px-4">
+          <div className="flex h-16 items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => router.push('/employee')}
+                className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <div className="rounded-xl bg-emerald-500 p-2">
+                <DollarSign className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-base font-bold text-gray-900">{t('payroll.mySalary', lang)}</h1>
+                <p className="text-xs text-gray-500">
+                  {user.firstName} {user.lastName}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-5xl space-y-6 px-4 py-6">
+        {/* ── Filters ── */}
+        <div className="rounded-xl border border-slate-200 bg-white p-5">
+          {/* Mode toggle */}
+          <div className="mb-4 flex items-center gap-2">
+            {(['monthly', 'range'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setFilterMode(mode)}
+                className={
+                  'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ' +
+                  (filterMode === mode
+                    ? 'border-slate-900 bg-slate-900 text-white'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50')
+                }
+              >
+                {mode === 'monthly' ? t('payroll.monthly', lang) : t('payroll.range', lang)}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
+            {filterMode === 'monthly' ? (
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500">
+                    {t('date.month', lang)}
+                  </label>
+                  <div className="flex gap-2">
+                    <SelectDropdown
+                      value={singleYear}
+                      onChange={setSingleYear}
+                      options={yearRange.map((y) => ({ value: y, label: String(y) }))}
+                    />
+                    <SelectDropdown
+                      value={singleMonth}
+                      onChange={setSingleMonth}
+                      options={BS_MONTHS_EN.map((m, i) => ({
+                        value: i + 1,
+                        label: lang === 'NEPALI' ? BS_MONTHS_NP[i] : m,
+                      }))}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500">
+                    {t('common.from', lang)}
+                  </label>
+                  <div className="flex gap-2">
+                    <SelectDropdown
+                      value={fromYear}
+                      onChange={setFromYear}
+                      options={yearRange.map((y) => ({ value: y, label: String(y) }))}
+                    />
+                    <SelectDropdown
+                      value={fromMonth}
+                      onChange={setFromMonth}
+                      options={BS_MONTHS_EN.map((m, i) => ({
+                        value: i + 1,
+                        label: lang === 'NEPALI' ? BS_MONTHS_NP[i] : m,
+                      }))}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500">
+                    {t('common.to', lang)}
+                  </label>
+                  <div className="flex gap-2">
+                    <SelectDropdown
+                      value={toYear}
+                      onChange={setToYear}
+                      options={[2081, 2082, 2083].map((y) => ({ value: y, label: String(y) }))}
+                    />
+                    <SelectDropdown
+                      value={toMonth}
+                      onChange={setToMonth}
+                      options={BS_MONTHS_EN.map((m, i) => ({
+                        value: i + 1,
+                        label: lang === 'NEPALI' ? BS_MONTHS_NP[i] : m,
+                      }))}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={loadSalaryData}
+              disabled={loadingData}
+              className="flex items-center gap-2 rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
+            >
+              <Calendar className="h-4 w-4" />
+              {loadingData ? t('common.loading', lang) : t('common.view', lang)}
+            </button>
+          </div>
+        </div>
+
+        {/* ── Error ── */}
+        {error && (
+          <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
+            <AlertCircle className="h-5 w-5 text-red-500" />
+            <span className="text-sm text-red-700">{error}</span>
+          </div>
+        )}
+
+        {/* ── Loading ── */}
+        {loadingData && (
+          <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
+            <Clock className="mx-auto mb-3 h-6 w-6 animate-spin text-slate-400" />
+            <p className="text-sm text-slate-500">{t('common.loading', lang)}</p>
+          </div>
+        )}
+
+        {/* ── Results ── */}
+        {!loadingData && employeeData && (
+          <>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              <SummaryCard
+                color="blue"
+                icon={<Calendar className="h-4 w-4 text-blue-600" />}
+                label={t('common.months', lang)}
+                value={String(employeeData.totals.monthsProcessed)}
+                sub={t('payroll.recorded', lang)}
+              />
+              <SummaryCard
+                color="emerald"
+                icon={<DollarSign className="h-4 w-4 text-emerald-600" />}
+                label={t('payroll.totalNet', lang)}
+                value={`Rs. ${fmtDisplay(employeeData.totals.netSalary)}`}
+                sub={`${employeeData.totals.monthsProcessed} ${t('common.months', lang)}`}
+              />
+              <SummaryCard
+                color="purple"
+                icon={<TrendingUp className="h-4 w-4 text-purple-600" />}
+                label={t('payroll.avgMonth', lang)}
+                value={`Rs. ${employeeData.totals.monthsProcessed > 0 ? fmtDisplay(Math.round(employeeData.totals.netSalary / employeeData.totals.monthsProcessed)) : 0}`}
+                sub={t('payroll.perMonth', lang)}
+              />
+              <SummaryCard
+                color="rose"
+                icon={<FileText className="h-4 w-4 text-rose-600" />}
+                label={t('payroll.deductions', lang)}
+                value={`Rs. ${fmtDisplay(employeeData.totals.totalDeductions)}`}
+                sub={t('common.total', lang)}
+              />
+            </div>
+
+            {/* Monthly Breakdown Table */}
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-5 py-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    {t('payroll.monthlyBreakdown', lang)}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    {lang === 'NEPALI'
+                      ? 'विस्तृत जानकारीका लागि कुनै पनि पङ्क्तिमा क्लिक गर्नुहोस्'
+                      : 'Click any row for a full payslip breakdown'}
+                  </p>
+                </div>
+
+                {/* Summary PDF button */}
+                {canDownloadPayslips ? (
+                  <button
+                    onClick={downloadSummaryPDF}
+                    disabled={summaryDownloading}
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {summaryDownloading
+                      ? t('payroll.generating', lang)
+                      : t('payroll.summaryPdf', lang)}
+                  </button>
+                ) : (
+                  <div
+                    className="relative"
+                    onMouseEnter={() => setShowSummaryTooltip(true)}
+                    onMouseLeave={() => setShowSummaryTooltip(false)}
+                  >
+                    <button
+                      disabled
+                      className="flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-400"
+                    >
+                      <Lock className="h-3.5 w-3.5" />
+                      <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-bold text-amber-700">
+                        PRO
+                      </span>
+                      {t('payroll.summaryPdf', lang)}
+                    </button>
+                    {showSummaryTooltip && (
+                      <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-lg">
+                        <div className="absolute bottom-full right-4 h-0 w-0 border-b-4 border-l-4 border-r-4 border-b-slate-900 border-l-transparent border-r-transparent" />
+                        {tooltipMsg}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50/50">
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-400">
+                        {t('common.month', lang)}
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-400">
+                        {t('payroll.basic', lang)}
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-400">
+                        {t('payroll.allowances', lang)}
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-400">
+                        {t('payroll.gross', lang)}
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-400">
+                        SSF
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-400">
+                        PF
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-400">
+                        TDS
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-400">
+                        {t('payroll.deductions', lang)}
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-slate-400">
+                        {t('payroll.netSalary', lang)}
+                      </th>
+                      <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-slate-400">
+                        {t('common.status', lang)}
+                      </th>
+                      <th className="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-slate-400">
+                        PDF
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {salaryData.months.map((m: any) => {
+                      const monthKey = m.bsYear + '-' + m.bsMonth
+                      const monthData = employeeData.months[monthKey]
+
+                      // ── No payroll record for this month ──
+                      if (!monthData) {
+                        return (
+                          <tr key={monthKey} className="hover:bg-slate-50/50">
+                            <td className="px-4 py-3 text-sm text-slate-900">
+                              {lang === 'NEPALI'
+                                ? BS_MONTHS_NP[m.bsMonth - 1]
+                                : BS_MONTHS_EN[m.bsMonth - 1]}{' '}
+                              {m.bsYear}
+                            </td>
+                            <td
+                              colSpan={10}
+                              className="px-4 py-3 text-center text-xs text-slate-400"
+                            >
+                              {t('payroll.noRecord', lang)}
+                            </td>
+                          </tr>
+                        )
+                      }
+
+                      const allowances =
+                        monthData.allowancesTotal ??
+                        (monthData.dearnessAllowance || 0) +
+                          (monthData.transportAllowance || 0) +
+                          (monthData.medicalAllowance || 0) +
+                          (monthData.otherAllowances || 0)
+
+                      return (
+                        // ── Clicking the row opens the payslip detail modal ──
+                        <tr
+                          key={monthKey}
+                          className="cursor-pointer transition-colors hover:bg-slate-50"
+                          onClick={() =>
+                            setSelectedPayslip({ monthData, bsYear: m.bsYear, bsMonth: m.bsMonth })
+                          }
+                        >
+                          <td className="px-4 py-3">
+                            <div className="text-sm font-medium text-slate-900">
+                              {lang === 'NEPALI'
+                                ? BS_MONTHS_NP[m.bsMonth - 1]
+                                : BS_MONTHS_EN[m.bsMonth - 1]}{' '}
+                              {m.bsYear}
+                            </div>
+                            <div className="text-xs text-slate-400">
+                              {getDaysInBSMonth(m.bsYear, m.bsMonth) - monthData.daysAbsent}/{getDaysInBSMonth(m.bsYear, m.bsMonth)}{' '}
+                              {t('common.days', lang)}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm text-slate-600">
+                            {fmtDisplay(monthData.basicSalary)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm text-slate-600">
+                            {fmtDisplay(allowances)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm font-medium text-slate-900">
+                            {fmtDisplay(monthData.grossSalary)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm text-rose-600">
+                            {fmtDisplay(monthData.employeeSsf || 0)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm text-rose-600">
+                            {fmtDisplay(monthData.employeePf || 0)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm text-rose-600">
+                            {fmtDisplay(monthData.tds || 0)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm text-rose-600">
+                            {fmtDisplay(monthData.totalDeductions)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm font-bold text-emerald-700">
+                            {fmtDisplay(monthData.netSalary)}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span
+                              className={
+                                'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium ' +
+                                (statusColors[monthData.status] || '')
+                              }
+                            >
+                              {monthData.status}
+                            </span>
+                          </td>
+
+                          {/* PDF button — stopPropagation so it doesn't open the detail modal */}
+                          <td className="px-4 py-3 text-center">
+                            {canDownloadPayslips ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openPreview(monthData.id, m.bsYear, m.bsMonth)
+                                }}
+                                className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2.5 py-1.5 text-[10px] font-medium text-white transition-colors hover:bg-slate-700"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                PDF
+                              </button>
+                            ) : (
+                              <div
+                                className="relative inline-block"
+                                onMouseEnter={() => setShowRowTooltip(monthKey)}
+                                onMouseLeave={() => setShowRowTooltip(null)}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  disabled
+                                  className="inline-flex cursor-not-allowed items-center gap-1 rounded-md border border-slate-200 bg-slate-100 px-2.5 py-1.5 text-[10px] font-medium text-slate-400"
+                                >
+                                  <Lock className="h-3 w-3" />
+                                  PDF
+                                </button>
+                                {showRowTooltip === monthKey && (
+                                  <div className="absolute bottom-full left-1/2 z-20 mb-2 w-56 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-center text-xs text-white shadow-lg">
+                                    <div className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-900" />
+                                    {tooltipMsg}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-300 bg-slate-100 font-semibold">
+                      <td className="px-4 py-3 text-sm text-slate-900">
+                        {t('common.total', lang)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm">
+                        {fmtDisplay(employeeData.totals.basicSalary)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm">--</td>
+                      <td className="px-4 py-3 text-right text-sm">
+                        {fmtDisplay(employeeData.totals.grossSalary)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-rose-700">
+                        {fmtDisplay(employeeData.totals.employeeSsf)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-rose-700">
+                        {fmtDisplay(employeeData.totals.employeePf)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-rose-700">
+                        {fmtDisplay(employeeData.totals.tds)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-rose-700">
+                        {fmtDisplay(employeeData.totals.totalDeductions)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-bold text-emerald-700">
+                        {fmtDisplay(employeeData.totals.netSalary)}
+                      </td>
+                      <td className="px-4 py-3 text-center text-sm text-slate-600">
+                        {employeeData.totals.monthsProcessed} {t('common.months', lang)}
+                      </td>
+                      <td className="px-4 py-3" />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── Empty state ── */}
+        {!loadingData && !employeeData && !error && (
+          <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-slate-100">
+              <FileText className="h-8 w-8 text-slate-400" />
+            </div>
+            <h3 className="mb-1 text-sm font-semibold text-slate-900">
+              {t('payroll.selectDate', lang)}
+            </h3>
+            <p className="text-xs text-slate-500">{t('payroll.selectDateHint', lang)}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payslip Detail Modal
+// Opened by clicking a row in the monthly breakdown table.
+// Uses the data already loaded in employeeData — no extra API call needed.
+// ─────────────────────────────────────────────────────────────────────────────
+function EmployeePayslipModal({
+  monthData,
+  bsYear,
+  bsMonth,
+  language,
+  canDownloadPayslips,
+  fmtDisplay,
+  onClose,
+  onViewPdf,
+}: {
+  monthData: any
+  bsYear: number
+  bsMonth: number
+  language: string
+  canDownloadPayslips: boolean
+  fmtDisplay: (n: number) => string
+  onClose: () => void
+  onViewPdf: () => void
+}) {
+  const isNp = language === 'NEPALI'
+  const monthLabel = isNp ? BS_MONTHS_NP[bsMonth - 1] : BS_MONTHS_EN[bsMonth - 1]
+
+  // Safe number formatter — treats null/undefined as 0
+  const fmt = (n: number | null | undefined) => fmtDisplay(n ?? 0)
+
+  // New records carry a dynamic allowancesBreakdown; legacy records fall back
+  // to the old fixed columns + dashain. See PAYROLL-ALLOWANCES-NOTES.md.
+  const earningsBreakdown: { label: string; amount: number }[] =
+    (monthData as any).allowancesBreakdown ?? []
+  const hasEarningsBreakdown = earningsBreakdown.length > 0
+  const earningsRows: [string, number][] = [
+    [isNp ? 'आधारभूत तलब' : 'Basic salary', monthData.basicSalary ?? 0],
+    ...(hasEarningsBreakdown
+      ? earningsBreakdown.map((b) => [b.label, b.amount] as [string, number])
+      : ([
+          [isNp ? 'महँगी भत्ता' : 'Dearness allowance', monthData.dearnessAllowance ?? 0],
+          [isNp ? 'यातायात भत्ता' : 'Transport allowance', monthData.transportAllowance ?? 0],
+          [isNp ? 'चिकित्सा भत्ता' : 'Medical allowance', monthData.medicalAllowance ?? 0],
+          [isNp ? 'अन्य भत्ता' : 'Other allowances', monthData.otherAllowances ?? 0],
+        ] as [string, number][])),
+    [isNp ? 'ओभरटाइम' : 'Overtime pay', monthData.overtimePay ?? 0],
+    ...(!hasEarningsBreakdown && (monthData.dashainBonus ?? 0) > 0
+      ? [[isNp ? 'दशैं बोनस' : 'Dashain bonus', monthData.dashainBonus] as [string, number]]
+      : []),
+  ]
+
+  const absenceDeduction: number = monthData.absenceDeduction ?? 0
+  // Saptahanta Anupasthiti Katti — surface in the label when applied so
+  // the employee sees the breakdown without needing to ask HR.
+  const sandwichDays: number = (monthData as any).sandwichPenaltyDays ?? 0
+
+  const deductionRows: [string, number][] = [
+    [`SSF (${isNp ? 'कर्मचारी' : 'Employee'})`, monthData.employeeSsf ?? 0],
+    [`PF (${isNp ? 'कर्मचारी' : 'Employee'})`, monthData.employeePf ?? 0],
+    ['CIT', monthData.citDeduction ?? 0],
+    ['TDS', monthData.tds ?? 0],
+    [isNp ? 'पेशगी कटौती' : 'Advance deduction', monthData.advanceDeduction ?? 0],
+  ]
+
+  const employerSsf: number = monthData.employerSsf ?? 0
+  const employerPf: number = monthData.employerPf ?? 0
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">
+              {isNp ? 'पे-स्लिप विवरण' : 'Payslip Detail'}
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {monthLabel} {bsYear}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {canDownloadPayslips && (
+              <button
+                onClick={onViewPdf}
+                className="flex items-center gap-1 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-slate-800"
+              >
+                {isNp ? 'PDF हेर्नुहोस्' : 'View PDF'}
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-4 p-5">
+          {/* Attendance summary */}
+          <ModalSection label={isNp ? 'उपस्थिति' : 'Attendance'}>
+            <div className="grid grid-cols-3 gap-2">
+              <ModalStatBox
+                label={isNp ? 'कार्य दिन' : 'Working'}
+                value={getDaysInBSMonth(bsYear, bsMonth)}
+              />
+              <ModalStatBox
+                label={isNp ? 'उपस्थित' : 'Present'}
+                value={getDaysInBSMonth(bsYear, bsMonth) - (monthData.daysAbsent ?? 0)}
+                className="bg-emerald-50"
+                valueClass="text-emerald-700"
+              />
+              <ModalStatBox
+                label={isNp ? 'अनुपस्थित' : 'Absent'}
+                value={monthData.daysAbsent ?? 0}
+                className="bg-rose-50"
+                valueClass="text-rose-700"
+              />
+              {((monthData as any).offDayWorkDays ?? 0) > 0 && (
+                <ModalStatBox
+                  label={isNp ? 'बिदाको दिन काम' : 'Off-day work'}
+                  value={`${(monthData as any).offDayWorkDays} · ${(monthData as any).offDayWorkHours ?? 0}h`}
+                  className="bg-purple-50"
+                  valueClass="text-purple-700"
+                />
+              )}
+            </div>
+          </ModalSection>
+
+          {/* Earnings */}
+          <ModalSection label={isNp ? 'आमदानी' : 'Earnings'}>
+            <div className="space-y-1 text-xs">
+              {earningsRows
+                .filter(([, v]) => v > 0)
+                .map(([label, val]) => (
+                  <ModalLineItem key={label} label={label} value={`Rs. ${fmt(val)}`} />
+                ))}
+              {absenceDeduction > 0 && (
+                <ModalLineItem
+                  label={
+                    sandwichDays > 0
+                      ? isNp
+                        ? `अनुपस्थिति कटौती (सप्ताहान्त कट्टी सहित — ${sandwichDays} दिन)`
+                        : `Absence deduction (incl. Saptahanta Anupasthiti Katti — ${sandwichDays} days)`
+                      : isNp
+                        ? 'अनुपस्थिति कटौती'
+                        : 'Absence deduction'
+                  }
+                  value={`- Rs. ${fmt(absenceDeduction)}`}
+                  valueClass="text-rose-600"
+                />
+              )}
+              <ModalLineItem
+                label={isNp ? 'कुल आमदानी' : 'Gross salary'}
+                value={`Rs. ${fmt(monthData.grossSalary ?? 0)}`}
+                bold
+                separator
+              />
+            </div>
+          </ModalSection>
+
+          {/* Deductions */}
+          <ModalSection label={isNp ? 'कटौती' : 'Deductions'}>
+            <div className="space-y-1 text-xs">
+              {deductionRows
+                .filter(([, v]) => v > 0)
+                .map(([label, val]) => (
+                  <ModalLineItem
+                    key={label}
+                    label={label}
+                    value={`Rs. ${fmt(val)}`}
+                    valueClass="text-rose-600"
+                  />
+                ))}
+              <ModalLineItem
+                label={isNp ? 'जम्मा कटौती' : 'Total deductions'}
+                value={`Rs. ${fmt(monthData.totalDeductions ?? 0)}`}
+                bold
+                separator
+                valueClass="text-rose-700"
+              />
+            </div>
+          </ModalSection>
+
+          {/* Employer contribution — only shown if non-zero */}
+          {(employerSsf > 0 || employerPf > 0) && (
+            <ModalSection label={isNp ? 'नियोक्ता योगदान' : 'Employer contribution'}>
+              <div className="space-y-1 text-xs">
+                {employerSsf > 0 && (
+                  <ModalLineItem
+                    label={`SSF (${isNp ? 'नियोक्ता' : 'Employer'})`}
+                    value={`Rs. ${fmt(employerSsf)}`}
+                    valueClass="text-blue-600"
+                  />
+                )}
+                {employerPf > 0 && (
+                  <ModalLineItem
+                    label={`PF (${isNp ? 'नियोक्ता' : 'Employer'})`}
+                    value={`Rs. ${fmt(employerPf)}`}
+                    valueClass="text-blue-600"
+                  />
+                )}
+              </div>
+            </ModalSection>
+          )}
+
+          {/* Net salary */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-slate-900">
+                {isNp ? 'खुद तलब' : 'Net salary'}
+              </span>
+              <span className="text-xl font-bold tracking-tight text-slate-900">
+                Rs. {fmt(monthData.netSalary ?? 0)}
+              </span>
+            </div>
+            {monthData.isMarried && (
+              <p className="mt-1 text-[10px] text-slate-500">
+                {isNp ? '* विवाहित कर स्ल्याब लागू' : '* Married tax slab applied'}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared sub-components
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ModalSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        {label}
+      </h4>
+      {children}
+    </div>
+  )
+}
+
+function ModalStatBox({
+  label,
+  value,
+  className = 'bg-slate-50',
+  valueClass = 'text-slate-900',
+}: {
+  label: string
+  value: number | string
+  className?: string
+  valueClass?: string
+}) {
+  return (
+    <div className={`${className} rounded-lg p-2 text-center`}>
+      <div className={`text-sm font-semibold ${valueClass}`}>{value}</div>
+      <div className="text-[10px] text-slate-400">{label}</div>
+    </div>
+  )
+}
+
+function ModalLineItem({
+  label,
+  value,
+  bold,
+  separator,
+  valueClass = 'text-slate-900',
+}: {
+  label: string
+  value: string
+  bold?: boolean
+  separator?: boolean
+  valueClass?: string
+}) {
+  return (
+    <div
+      className={`flex justify-between py-0.5 ${separator ? 'mt-1 border-t border-slate-200 pt-1.5' : ''}`}
+    >
+      <span className={bold ? 'font-semibold text-slate-900' : 'text-slate-600'}>{label}</span>
+      <span className={`font-medium ${valueClass}`}>{value}</span>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reusable select dropdown
+// ─────────────────────────────────────────────────────────────────────────────
+function SelectDropdown({
+  value,
+  onChange,
+  options,
+}: {
+  value: number
+  onChange: (v: number) => void
+  options: { value: number; label: string }[]
+}) {
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="cursor-pointer appearance-none rounded-lg border border-slate-200 bg-white px-3 py-1.5 pr-8 text-sm font-medium text-slate-700 outline-none transition-colors hover:bg-slate-50"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-slate-400">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </span>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Summary card (top stats row)
+// ─────────────────────────────────────────────────────────────────────────────
+function SummaryCard({
+  color,
+  icon,
+  label,
+  value,
+  sub,
+}: {
+  color: 'blue' | 'emerald' | 'purple' | 'rose'
+  icon: React.ReactNode
+  label: string
+  value: string
+  sub: string
+}) {
+  const styles = {
+    blue: {
+      wrap: 'from-blue-50 to-blue-100 border-blue-200',
+      label: 'text-blue-700',
+      val: 'text-blue-900',
+      sub: 'text-blue-600',
+    },
+    emerald: {
+      wrap: 'from-emerald-50 to-emerald-100 border-emerald-200',
+      label: 'text-emerald-700',
+      val: 'text-emerald-900',
+      sub: 'text-emerald-600',
+    },
+    purple: {
+      wrap: 'from-purple-50 to-purple-100 border-purple-200',
+      label: 'text-purple-700',
+      val: 'text-purple-900',
+      sub: 'text-purple-600',
+    },
+    rose: {
+      wrap: 'from-rose-50 to-rose-100 border-rose-200',
+      label: 'text-rose-700',
+      val: 'text-rose-900',
+      sub: 'text-rose-600',
+    },
+  }[color]
+
+  return (
+    <div className={`bg-gradient-to-br ${styles.wrap} rounded-xl border p-5`}>
+      <div className="mb-2 flex items-center justify-between">
+        <span className={`text-xs font-medium ${styles.label}`}>{label}</span>
+        {icon}
+      </div>
+      <p className={`text-xl font-bold ${styles.val}`}>{value}</p>
+      <p className={`text-xs ${styles.sub} mt-1`}>{sub}</p>
+    </div>
+  )
+}
