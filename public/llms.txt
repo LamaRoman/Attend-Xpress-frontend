@@ -31,8 +31,20 @@ Businesses in Nepal that need to track attendance and run payroll for office sta
 
 Attend Xpress is a product of Zentara Labs.
 
+## Guides
+
+In-depth articles on attendance, field tracking, payroll and HR for businesses in Nepal:
+
+- QR code vs biometric attendance for Nepali businesses: https://zentaralabs.com/blog/qr-vs-biometric-attendance-nepal
+- How to track field staff location in Nepal: https://zentaralabs.com/blog/track-field-staff-location-nepal
+- Bikram Sambat payroll — why Nepali businesses need BS-calendar software: https://zentaralabs.com/blog/bikram-sambat-payroll-nepal
+- Managing attendance across multiple branches: https://zentaralabs.com/blog/multi-branch-attendance-management
+- How to choose attendance software in Nepal: https://zentaralabs.com/blog/choose-attendance-software-nepal
+- Leave management and the Labor Act 2074: https://zentaralabs.com/blog/leave-management-nepal-labor-act
+
 ## Links
 
 - Website: https://zentaralabs.com
+- Blog: https://zentaralabs.com/blog
 - Sign up: https://zentaralabs.com/signup
 - Sign in: https://zentaralabs.com/login

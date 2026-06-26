@@ -146,6 +146,7 @@ function SiteHeader() {
           <a href="#features" className="hover:text-slate-900">Features</a>
           <a href="#how-it-works" className="hover:text-slate-900">How it works</a>
           <a href="#faq" className="hover:text-slate-900">FAQ</a>
+          <Link href="/blog" className="hover:text-slate-900">Blog</Link>
         </nav>
         <div className="flex items-center gap-2">
           <Link
@@ -450,6 +451,7 @@ function SiteFooter() {
         </div>
         <nav className="flex items-center gap-6 text-sm font-medium text-slate-600">
           <a href="#features" className="hover:text-slate-900">Features</a>
+          <Link href="/blog" className="hover:text-slate-900">Blog</Link>
           <Link href="/login" className="hover:text-slate-900">Log in</Link>
           <Link href="/signup" className="hover:text-slate-900">Sign up</Link>
         </nav>
