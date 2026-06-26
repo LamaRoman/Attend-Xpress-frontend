@@ -1,22 +1,18 @@
 {
-  "name": "Smart Attendance",
-  "short_name": "Attendance",
-  "description": "Clock in/out by scanning QR code",
+  "name": "Attend Xpress",
+  "short_name": "Attend Xpress",
+  "description": "Attendance, field tracking & payroll software for Nepal.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#3b82f6",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ]
 }
