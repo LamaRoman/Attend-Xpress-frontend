@@ -29,6 +29,7 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   alternates: { canonical: '/' },
   formatDetection: { telephone: false, address: false, email: false },
+  verification: { google: 'Po55SOPbcSJe1IshWGzcV4dKS_swpJ3z5Jz-5MnZXEw' },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
