@@ -124,10 +124,12 @@ function LiveMap({
   const fittedRef = useRef(false) // track if we've done the initial fit
   onSelectRef.current = onSelect
 
+  const hasToken = !!process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+
   // Initialize map once
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return
-    mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
+    if (!hasToken || !containerRef.current || mapRef.current) return
+    mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: 'mapbox://styles/mapbox/streets-v12',
@@ -140,7 +142,7 @@ function LiveMap({
       mapRef.current = null
       fittedRef.current = false
     }
-  }, [])
+  }, [hasToken])
 
   // Update live-position markers whenever positions change
   useEffect(() => {
@@ -238,6 +240,18 @@ function LiveMap({
     })
   }, [selectedId, selectedStops])
 
+  if (!hasToken) {
+    return (
+      <div className="flex h-full w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50">
+        <div className="text-center">
+          <MapPin className="mx-auto mb-2 h-8 w-8 text-slate-300" />
+          <p className="text-sm font-medium text-slate-600">Map unavailable</p>
+          <p className="mt-1 text-xs text-slate-400">Mapbox token not configured</p>
+        </div>
+      </div>
+    )
+  }
+
   return <div ref={containerRef} className="z-0 h-full w-full rounded-xl border border-slate-200" />
 }
 
@@ -299,10 +313,12 @@ function RouteMap({ points, stops = [] }: { points: RoutePoint[]; stops?: Detect
   const loadedRef = useRef(false)
   const addedRef = useRef<RouteLayerIds>({ sources: [], layers: [] })
 
+  const hasToken = !!process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+
   // Initialize map once
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return
-    mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
+    if (!hasToken || !containerRef.current || mapRef.current) return
+    mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
     const map = new mapboxgl.Map({
       container: containerRef.current,
       style: 'mapbox://styles/mapbox/streets-v12',
@@ -316,7 +332,7 @@ function RouteMap({ points, stops = [] }: { points: RoutePoint[]; stops?: Detect
       mapRef.current = null
       loadedRef.current = false
     }
-  }, [])
+  }, [hasToken])
 
   // Draw route whenever points change
   useEffect(() => {
@@ -468,6 +484,18 @@ function RouteMap({ points, stops = [] }: { points: RoutePoint[]; stops?: Detect
 
     draw()
   }, [points, stops])
+
+  if (!hasToken) {
+    return (
+      <div className="flex h-full w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50">
+        <div className="text-center">
+          <MapPin className="mx-auto mb-2 h-8 w-8 text-slate-300" />
+          <p className="text-sm font-medium text-slate-600">Map unavailable</p>
+          <p className="mt-1 text-xs text-slate-400">Mapbox token not configured</p>
+        </div>
+      </div>
+    )
+  }
 
   return <div ref={containerRef} className="z-0 h-full w-full rounded-xl border border-slate-200" />
 }
