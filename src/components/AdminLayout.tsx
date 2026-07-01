@@ -26,6 +26,7 @@ import { useState } from 'react'
 import NotificationBell from './NotificationBell'
 import PoweredBy from './PoweredBy'
 import { FeatureLockScreen } from './FeatureLock'
+import BillingBanner from './BillingBanner'
 
 interface NavItem {
   path: string
@@ -354,6 +355,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
       {/* ── Main content ────────────────────────────────────────────── */}
       <main className="flex-1 pt-14 md:ml-60 md:pt-0 lg:ml-64">
+        <BillingBanner />
         {hasInactiveEmployees && isOrgAdmin && (
           <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 sm:px-6 lg:px-8">
             <div className="mx-auto flex max-w-6xl items-center gap-3">

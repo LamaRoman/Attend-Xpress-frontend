@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { subscriptionStatus, type SubLike, type SubStatusSummary } from '@/lib/subscription-status'
 
 interface Organization {
   id: string
@@ -122,6 +123,10 @@ interface AuthContextType {
   language: 'NEPALI' | 'ENGLISH'
   features: Features
   hasInactiveEmployees: boolean
+  /** Org subscription (admins only); null for other roles or when not yet loaded. */
+  subscription: SubLike | null
+  /** Derived status summary (label/copy/colors/days-left) for the current subscription. */
+  subStatus: SubStatusSummary | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -129,6 +134,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [subscription, setSubscription] = useState<SubLike | null>(null)
   const router = useRouter()
 
   const checkAuth = useCallback(async () => {
@@ -154,6 +160,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     checkAuth()
   }, [checkAuth])
+
+  // Load the org subscription for admins (org + branch), so the billing banner
+  // can surface trial/grace state on every admin page. Other roles never see
+  // it, so we skip the fetch and keep it null.
+  const isOrgOrBranchAdmin =
+    user?.role === 'ORG_ADMIN' || user?.role === 'BRANCH_ADMIN'
+  useEffect(() => {
+    if (!isOrgOrBranchAdmin) {
+      setSubscription(null)
+      return
+    }
+    let cancelled = false
+    api
+      .get('/api/v1/org-settings/subscription')
+      .then((res) => {
+        if (!cancelled) setSubscription((res.data as SubLike) ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setSubscription(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isOrgOrBranchAdmin])
 
   const login = async (email: string, password: string) => {
     const res = await api.post('/api/v1/auth/login', { email, password })
@@ -243,6 +273,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const hasInactiveEmployees = user?.hasInactiveEmployees ?? false
 
+  const subStatus = subscription ? subscriptionStatus(subscription) : null
+
   return (
     <AuthContext.Provider
       value={{
@@ -261,6 +293,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         language,
         features,
         hasInactiveEmployees,
+        subscription,
+        subStatus,
       }}
     >
       {children}
