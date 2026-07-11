@@ -66,7 +66,3 @@ export const STATUS_CONFIG: Record<
     labelNp: 'अस्वीकृत',
   },
 }
-
-// Current BS year approximation (same formula used across the project)
-const now = new Date()
-export const CURRENT_BS_YEAR = now.getMonth() >= 3 ? now.getFullYear() + 57 : now.getFullYear() + 56
