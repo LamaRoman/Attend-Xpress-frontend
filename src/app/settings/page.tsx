@@ -78,9 +78,12 @@ function OrgSettingsPageInner() {
     earlyClockInGraceMinutes: 15,
     lateClockOutGraceMinutes: 30,
     notificationRetentionDays: 30,
-    // ── Leave Balance Policy ──────────────────────────────────────────────
     maxDailyCheckins: null as number | null,
     autoCloseGraceMinutes: 240,
+    // ── Leave Entitlement Policy ──────────────────────────────────────────
+    sickLeaveEntitlement: 12,
+    annualLeaveEntitlement: 18,
+    unpaidLeaveEntitlement: 365,
   })
 
   useEffect(() => {
@@ -116,6 +119,9 @@ function OrgSettingsPageInner() {
         notificationRetentionDays: 30,
         maxDailyCheckins: data.maxDailyCheckins ?? null,
         autoCloseGraceMinutes: data.autoCloseGraceMinutes ?? 240,
+        sickLeaveEntitlement: data.sickLeaveEntitlement ?? 12,
+        annualLeaveEntitlement: data.annualLeaveEntitlement ?? 18,
+        unpaidLeaveEntitlement: data.unpaidLeaveEntitlement ?? 365,
       })
       const configRes = await api.get('/api/v1/config')
       if (configRes.data) {
@@ -160,6 +166,9 @@ function OrgSettingsPageInner() {
       lateClockOutGraceMinutes: formData.lateClockOutGraceMinutes,
       maxDailyCheckins: formData.maxDailyCheckins,
       autoCloseGraceMinutes: formData.autoCloseGraceMinutes,
+      sickLeaveEntitlement: formData.sickLeaveEntitlement,
+      annualLeaveEntitlement: formData.annualLeaveEntitlement,
+      unpaidLeaveEntitlement: formData.unpaidLeaveEntitlement,
     })
 
     await api.put('/api/v1/config/notificationRetentionDays', {
@@ -193,6 +202,9 @@ function OrgSettingsPageInner() {
         notificationRetentionDays: formData.notificationRetentionDays,
         maxDailyCheckins: updated.maxDailyCheckins ?? null,
         autoCloseGraceMinutes: updated.autoCloseGraceMinutes ?? 240,
+        sickLeaveEntitlement: updated.sickLeaveEntitlement ?? 12,
+        annualLeaveEntitlement: updated.annualLeaveEntitlement ?? 18,
+        unpaidLeaveEntitlement: updated.unpaidLeaveEntitlement ?? 365,
       })
       await refreshUser()
       setLastRefreshed(new Date())
@@ -766,6 +778,92 @@ function OrgSettingsPageInner() {
                       {isNepali
                         ? 'अन्त समय पछि यति मिनेटसम्म ओभरटाइम मानिँदैन। (डिफल्ट: ३०)'
                         : 'Clock-outs this many minutes after shift end are treated as on-time. (Default: 30)'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Leave Entitlements */}
+              <div className="border-t border-slate-100 pt-4">
+                <div className="mb-1 flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-slate-500" />
+                  <p className="text-sm font-medium text-slate-700">
+                    {isNepali ? 'बिदा अधिकार (दिन/वर्ष)' : 'Leave Entitlements (days/year)'}
+                  </p>
+                </div>
+                <p className="mb-4 text-xs text-slate-400">
+                  {isNepali
+                    ? 'प्रत्येक बिदा प्रकारका लागि वार्षिक अधिकार दिन। कर्मचारीको बिदा ब्यालेन्स यसैबाट गणना हुन्छ।'
+                    : 'Entitled days per year for each leave type. Employee leave balances are calculated from these.'}
+                </p>
+                <div className="grid grid-cols-3 gap-5">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">
+                      {isNepali ? 'बिरामी बिदा' : 'Sick Leave'}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="365"
+                      step="1"
+                      value={formData.sickLeaveEntitlement}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          sickLeaveEntitlement: parseInt(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-base focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                      placeholder="12"
+                    />
+                    <p className="text-xs text-slate-500">
+                      {isNepali ? '(डिफल्ट: १२)' : '(Default: 12)'}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">
+                      {isNepali ? 'वार्षिक बिदा' : 'Annual Leave'}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="365"
+                      step="1"
+                      value={formData.annualLeaveEntitlement}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          annualLeaveEntitlement: parseInt(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-base focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                      placeholder="18"
+                    />
+                    <p className="text-xs text-slate-500">
+                      {isNepali ? '(डिफल्ट: १८)' : '(Default: 18)'}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-700">
+                      {isNepali ? 'बिना तलब बिदा' : 'Unpaid Leave'}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="365"
+                      step="1"
+                      value={formData.unpaidLeaveEntitlement}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          unpaidLeaveEntitlement: parseInt(e.target.value) || 0,
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-base focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-100"
+                      placeholder="365"
+                    />
+                    <p className="text-xs text-slate-500">
+                      {isNepali ? '(डिफल्ट: ३६५)' : '(Default: 365)'}
                     </p>
                   </div>
                 </div>
