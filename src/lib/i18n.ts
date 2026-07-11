@@ -189,11 +189,8 @@ const translations: Record<string, Record<Language, string>> = {
   'leave.rejectedBy': { NEPALI: 'अस्वीकृत गर्ने:', ENGLISH: 'Rejected by' },
   'leave.selectDate': { NEPALI: 'मिति छान्नुहोस्', ENGLISH: 'Select date' },
   'leave.type.SICK': { NEPALI: 'बिरामी बिदा', ENGLISH: 'Sick Leave' },
-  'leave.type.CASUAL': { NEPALI: 'आकस्मिक बिदा', ENGLISH: 'Casual Leave' },
   'leave.type.ANNUAL': { NEPALI: 'वार्षिक बिदा', ENGLISH: 'Annual Leave' },
   'leave.type.UNPAID': { NEPALI: 'बिना तलब बिदा', ENGLISH: 'Unpaid Leave' },
-  'leave.type.MATERNITY': { NEPALI: 'प्रसूति बिदा', ENGLISH: 'Maternity Leave' },
-  'leave.type.PATERNITY': { NEPALI: 'पितृत्व बिदा', ENGLISH: 'Paternity Leave' },
 
   // ===== Reports =====
   'reports.title': { NEPALI: 'प्रतिवेदन', ENGLISH: 'Reports' },
