@@ -229,18 +229,13 @@ export default function AdminDashboard() {
         <div className="relative overflow-hidden rounded-3xl bg-slate-950 p-5 sm:p-6">
           <div
             aria-hidden
-            className="dz-blob pointer-events-none absolute -left-24 -top-24 h-80 w-80 rounded-full bg-indigo-500/25 blur-3xl"
+            className="dz-blob pointer-events-none absolute -left-24 -top-24 h-80 w-80 rounded-full bg-white/10 blur-3xl"
             style={{ animation: 'dz-driftA 18s ease-in-out infinite' }}
           />
           <div
             aria-hidden
-            className="dz-blob pointer-events-none absolute -bottom-28 -right-16 h-96 w-96 rounded-full bg-emerald-500/20 blur-3xl"
+            className="dz-blob pointer-events-none absolute -bottom-28 -right-16 h-96 w-96 rounded-full bg-white/5 blur-3xl"
             style={{ animation: 'dz-driftB 22s ease-in-out infinite' }}
-          />
-          <div
-            aria-hidden
-            className="dz-blob pointer-events-none absolute right-1/4 top-1/3 h-56 w-56 rounded-full bg-fuchsia-500/10 blur-3xl"
-            style={{ animation: 'dz-driftA 26s ease-in-out infinite' }}
           />
           <div
             aria-hidden
