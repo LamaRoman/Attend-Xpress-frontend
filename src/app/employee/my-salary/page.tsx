@@ -1013,9 +1013,6 @@ function EmployeePayslipModal({
   ]
 
   const absenceDeduction: number = monthData.absenceDeduction ?? 0
-  // Saptahanta Anupasthiti Katti — surface in the label when applied so
-  // the employee sees the breakdown without needing to ask HR.
-  const sandwichDays: number = (monthData as any).sandwichPenaltyDays ?? 0
 
   const deductionRows: [string, number][] = [
     [`SSF (${isNp ? 'कर्मचारी' : 'Employee'})`, monthData.employeeSsf ?? 0],
@@ -1106,15 +1103,7 @@ function EmployeePayslipModal({
                 ))}
               {absenceDeduction > 0 && (
                 <ModalLineItem
-                  label={
-                    sandwichDays > 0
-                      ? isNp
-                        ? `अनुपस्थिति कटौती (सप्ताहान्त कट्टी सहित — ${sandwichDays} दिन)`
-                        : `Absence deduction (incl. Saptahanta Anupasthiti Katti — ${sandwichDays} days)`
-                      : isNp
-                        ? 'अनुपस्थिति कटौती'
-                        : 'Absence deduction'
-                  }
+                  label={isNp ? 'अनुपस्थिति कटौती' : 'Absence deduction'}
                   value={`- Rs. ${fmt(absenceDeduction)}`}
                   valueClass="text-rose-600"
                 />

@@ -22,12 +22,10 @@ type Payslip = {
         bsMonth: number;
         totalDaysInMonth: number;
         workingDaysInMonth: number;
-        sandwichLeaveEnabled: boolean;
     };
     attendance: {
         daysPresent: number;
         daysAbsent: number;
-        sandwichPenaltyDays: number;
     };
     earnings: {
         basicSalary: number;
@@ -48,8 +46,7 @@ type Payslip = {
         employerPf: number;
         advanceDeduction: number;
         tds: number;
-        regularAbsenceDeduction: number;
-        sandwichDeduction: number;
+        absenceDeduction: number;
         citDeduction: number;
     };
     netSalary: number;
@@ -85,8 +82,7 @@ const DEDUCTION_LABELS: Record<keyof Payslip["deductions"], string> = {
     employerPf: "Employer PF",
     advanceDeduction: "Advance Deduction",
     tds: "TDS",
-    regularAbsenceDeduction: "Absence Deduction",
-    sandwichDeduction: "Saptahanta Anupasthiti Katti",
+    absenceDeduction: "Absence Deduction",
     citDeduction: "CIT Deduction",
 };
 
@@ -339,29 +335,16 @@ export default function PayslipPage() {
                             </div>
                         </div>
 
-                        {/* Attendance — Penalty Days shows only for orgs with the
-                            sandwich rule enabled AND when a penalty was actually
-                            applied this month. Holidays are paid days off baked
-                            into the salary, so they're omitted (no pay impact). */}
-                        {(() => {
-                            const showPenalty =
-                                payslip.period.sandwichLeaveEnabled &&
-                                payslip.attendance.sandwichPenaltyDays > 0;
-                            const cols = showPenalty ? 4 : 3;
-                            return (
-                                <div style={{ marginBottom: "24px" }}>
-                                    <Label>Attendance</Label>
-                                    <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: "8px" }}>
-                                        <AttCard value={payslip.period.workingDaysInMonth} label="Working Days" />
-                                        <AttCard value={payslip.attendance.daysPresent} label="Present" color="#059669" />
-                                        <AttCard value={payslip.attendance.daysAbsent} label="Absent" color="#dc2626" />
-                                        {showPenalty && (
-                                            <AttCard value={payslip.attendance.sandwichPenaltyDays} label="Penalty Days" color="#2563eb" />
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })()}
+                        {/* Attendance. Holidays are paid days off baked into the
+                            salary, so they're omitted (no pay impact). */}
+                        <div style={{ marginBottom: "24px" }}>
+                            <Label>Attendance</Label>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
+                                <AttCard value={payslip.period.workingDaysInMonth} label="Working Days" />
+                                <AttCard value={payslip.attendance.daysPresent} label="Present" color="#059669" />
+                                <AttCard value={payslip.attendance.daysAbsent} label="Absent" color="#dc2626" />
+                            </div>
+                        </div>
 
                         {/* Earnings & Deductions */}
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "28px", marginBottom: "24px" }}>

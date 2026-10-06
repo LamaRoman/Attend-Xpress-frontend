@@ -71,8 +71,6 @@ interface MiniCalendarProps {
   // ── Payroll-context props (admin per-employee view) ──────────────────────
   // These mirror what payroll generation computes, so the calendar an admin
   // sees matches the payslip. All keys are AD "YYYY-MM-DD" strings.
-  /** Weekend days absorbed as Saptahanta Anupasthiti Katti LOP — orange */
-  sandwichDates?: Set<string>
   /** Days covered by a REJECTED leave request (still absent) — tooltip marker */
   rejectedLeaveDates?: Set<string>
   /** Employee join date — earlier days are muted and never counted absent */
@@ -99,7 +97,6 @@ export default function MiniCalendar({
   overrideLeaveMap,
   expanded = false,
   onMonthChange,
-  sandwichDates,
   rejectedLeaveDates,
   joinedAfter,
   workingDaysOverride,
@@ -457,8 +454,6 @@ export default function MiniCalendar({
             const adDateNorm = new Date(adDate.getFullYear(), adDate.getMonth(), adDate.getDate())
             // Pre-employment days are never absences (mirrors payroll's joinedAt rule)
             const isPreJoin = !!joinedAfter && adStr < joinedAfter
-            // Weekend day billed by the sandwich rule — matches the payslip's LOP
-            const isSandwich = !!sandwichDates && sandwichDates.has(adStr)
             const isRejectedLeave = !!rejectedLeaveDates && rejectedLeaveDates.has(adStr)
             const isAbsent = !!presentDays && !presentDays.has(adStr) && !isRed && !isLeave && !isPreJoin && adDateNorm <= todayNorm
             // lateDays requires presentDays to be set; amber = late, emerald = on-time present
@@ -470,8 +465,6 @@ export default function MiniCalendar({
 
             const hoverTitle = isOffDayWork
               ? (isNp ? 'बिदाको दिन काम (ओभरटाइम)' : 'Off-day / holiday work (overtime)')
-              : isSandwich
-              ? (isNp ? 'सप्ताहान्त अनुपस्थिति कट्टी' : 'Saptahanta Anupasthiti Katti (LOP)')
               : isPreJoin
                 ? (isNp ? 'नियुक्ति अघि' : 'Before joining')
                 : isRejectedLeave && isAbsent
@@ -485,7 +478,6 @@ export default function MiniCalendar({
             const cellBg = active
               ? 'bg-slate-900'
               : isOffDayWork ? 'bg-purple-50 hover:bg-purple-100'
-                : isSandwich ? 'bg-orange-50 hover:bg-orange-100'
                   : isPreJoin ? 'bg-slate-50/50'
                     : isLate ? 'bg-amber-50 hover:bg-amber-100'
                       : isOntimePresent ? 'bg-emerald-50 hover:bg-emerald-100'
@@ -494,7 +486,6 @@ export default function MiniCalendar({
 
             const dayColor = active ? 'text-white'
               : isOffDayWork ? 'text-purple-700'
-                : isSandwich ? 'text-orange-700'
                   : isPreJoin ? 'text-slate-300'
                     : isRed ? 'text-rose-600'
                       : isLeave ? 'text-blue-600'
@@ -505,7 +496,6 @@ export default function MiniCalendar({
 
             const subColor = active ? 'text-slate-300'
               : isOffDayWork ? 'text-purple-400'
-                : isSandwich ? 'text-orange-300'
                   : isPreJoin ? 'text-slate-200'
                     : isLate ? 'text-amber-400'
                       : isOntimePresent ? 'text-emerald-400'
@@ -565,9 +555,6 @@ export default function MiniCalendar({
               <LegendDot bg="bg-purple-100" text="text-purple-700" label={isNp ? 'बिदाको दिन काम' : 'Off-day work'} />
             )}
             {!noLeaves && <LegendDot bg="bg-blue-100" text="text-blue-700" label={isNp ? 'बिदा लिएको' : 'On leave'} />}
-            {sandwichDates && sandwichDates.size > 0 && (
-              <LegendDot bg="bg-orange-100" text="text-orange-700" label={isNp ? 'सप्ताहान्त कट्टी' : 'Sandwich (LOP)'} />
-            )}
           </div>
         )}
       </div>

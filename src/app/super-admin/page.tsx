@@ -27,7 +27,6 @@ import {
   Calculator,
   Briefcase,
   Banknote,
-  CalendarX,
   Clock,
   RotateCcw,
   AlertTriangle,
@@ -43,7 +42,6 @@ interface Organization {
   ssfEnabled: boolean
   citEnabled: boolean
   tdsEnabled: boolean
-  sandwichLeaveEnabled: boolean
   calendarMode: 'NEPALI' | 'ENGLISH'
   language: 'NEPALI' | 'ENGLISH'
   createdAt: string
@@ -100,7 +98,6 @@ const FEATURE_CONFIG = [
   { key: 'ssfEnabled', label: 'SSF', icon: Shield },
   { key: 'citEnabled', label: 'CIT', icon: Banknote },
   { key: 'tdsEnabled', label: 'Tax', icon: Calculator },
-  { key: 'sandwichLeaveEnabled', label: 'Saptahanta Anupasthiti Katti', icon: CalendarX },
 ]
 
 export default function SuperAdminPage() {
