@@ -69,23 +69,9 @@ export default function PayslipModal({ record, language, onClose, onError }: Pro
   // Absence deduction shown in earnings as a negative (already baked into grossSalary)
   // This makes the earnings section self-consistent:
   // Basic + Allowances + Overtime + Dashain - AbsenceDeduction = Gross
-  //
-  // When Saptahanta Anupasthiti Katti contributed, we surface that in the
-  // label so the employee can see the breakdown directly on the payslip
-  // without needing to ask the admin "why was I docked 2 days for 1 absence?"
-  const sandwichDays = ((record as any).sandwichPenaltyDays as number) || 0
   const absenceRow: [string, number] | null =
     record.absenceDeduction > 0
-      ? [
-        sandwichDays > 0
-          ? isNp
-            ? `अनुपस्थिति कटौती (सप्ताहान्त कट्टी सहित — ${sandwichDays} दिन)`
-            : `Absence deduction (incl. Saptahanta Anupasthiti Katti — ${sandwichDays} days)`
-          : isNp
-            ? 'अनुपस्थिति कटौती'
-            : 'Absence deduction',
-        record.absenceDeduction,
-      ]
+      ? [isNp ? 'अनुपस्थिति कटौती' : 'Absence deduction', record.absenceDeduction]
       : null
 
   // Deductions — absenceDeduction NOT included because it is already in grossSalary
@@ -187,17 +173,6 @@ export default function PayslipModal({ record, language, onClose, onError }: Pro
                   value={`${(record as any).offDayWorkDays} · ${(record as any).offDayWorkHours ?? 0}h`}
                   className="bg-purple-50"
                   valueClass="text-purple-700"
-                />
-              )}
-              {/* Saptahanta Anupasthiti Katti — show only when penalty
-                  was actually applied. Field is missing or 0 for orgs
-                  without the feature, in which case the stat hides. */}
-              {(record as any).sandwichPenaltyDays > 0 && (
-                <StatBox
-                  label={isNp ? 'सप्ताहान्त कट्टी' : 'Sandwich Days'}
-                  value={(record as any).sandwichPenaltyDays}
-                  className="bg-orange-50"
-                  valueClass="text-orange-700"
                 />
               )}
             </div>

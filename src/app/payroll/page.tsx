@@ -316,7 +316,6 @@ export default function PayrollPage() {
   const generatePayroll = async (
     overtimeOverrides: Record<string, number> = {},
     reason?: string,
-    sandwichPenaltyOverrides: Record<string, number> = {},
   ) => {
     setGenerating(true)
     setError('')
@@ -324,8 +323,6 @@ export default function PayrollPage() {
       bsYear: genYear,
       bsMonth: genMonth,
       overtimeOverrides: Object.keys(overtimeOverrides).length > 0 ? overtimeOverrides : undefined,
-      sandwichPenaltyOverrides:
-        Object.keys(sandwichPenaltyOverrides).length > 0 ? sandwichPenaltyOverrides : undefined,
       ...(reason ? { reason } : {}),
     })
     if (res.error) {
@@ -599,7 +596,6 @@ export default function PayrollPage() {
             genMonth={genMonth}
             generating={generating}
             genResult={genResult}
-            sandwichLeaveEnabled={features.sandwichLeave}
             onSetYear={setGenYear}
             onSetMonth={setGenMonth}
             onGenerate={generatePayroll}

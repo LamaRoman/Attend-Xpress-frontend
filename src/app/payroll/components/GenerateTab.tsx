@@ -22,14 +22,9 @@ interface Props {
   onSetYear: (y: number) => void
   onSetMonth: (m: number) => void
   userRole?: string
-  /** Whether the org has Saptahanta Anupasthiti Katti enabled. Drives whether
-   * the sandwich-override column is shown — admins of orgs without the feature
-   * never see it. */
-  sandwichLeaveEnabled?: boolean
   onGenerate: (
     overrides: Record<string, number>,
     reason?: string,
-    sandwichPenaltyOverrides?: Record<string, number>,
   ) => void
 }
 
@@ -42,14 +37,12 @@ export default function GenerateTab({
   generating,
   genResult,
   userRole,
-  sandwichLeaveEnabled,
   onSetYear,
   onSetMonth,
   onGenerate,
 }: Props) {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [overtimeOverrides, setOvertimeOverrides] = useState<Record<string, string>>({})
-  const [sandwichOverrides, setSandwichOverrides] = useState<Record<string, string>>({})
   const [existingStatus, setExistingStatus] = useState<string | null>(null)
   const [checkingExisting, setCheckingExisting] = useState(false)
 
@@ -118,28 +111,12 @@ export default function GenerateTab({
         overrides[membershipId] = Math.max(0, parsed)
       }
     }
-    // Saptahanta Anupasthiti Katti overrides — integer days only, parsed
-    // the same way. Only collected when the feature is on; when off, the
-    // state stays empty and we send nothing.
-    const sandwichPenaltyOverrides: Record<string, number> = {}
-    if (sandwichLeaveEnabled) {
-      for (const [membershipId, val] of Object.entries(sandwichOverrides)) {
-        const parsed = parseInt(val, 10)
-        if (!isNaN(parsed) && val.trim() !== '') {
-          sandwichPenaltyOverrides[membershipId] = Math.max(0, parsed)
-        }
-      }
-    }
-    onGenerate(overrides, isOverridable ? overrideReason : undefined, sandwichPenaltyOverrides)
+    onGenerate(overrides, isOverridable ? overrideReason : undefined)
   }
 
   const setOverride = (membershipId: string, val: string) => {
     setOvertimeOverrides((prev) => ({ ...prev, [membershipId]: val }))
   }
-  const setSandwichOverride = (membershipId: string, val: string) => {
-    setSandwichOverrides((prev) => ({ ...prev, [membershipId]: val }))
-  }
-
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-slate-200 bg-white p-5">
@@ -346,28 +323,6 @@ export default function GenerateTab({
                     />
                     <span className="text-[10px] text-slate-400">{isNp ? 'घण्टा' : 'hrs'}</span>
                   </div>
-                  {/* Saptahanta Anupasthiti Katti override — only shown when
-                      the org has the feature enabled. Integer days only;
-                      blank = use the calculated value. */}
-                  {sandwichLeaveEnabled && (
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        placeholder={isNp ? 'स्वतः' : 'Auto'}
-                        value={sandwichOverrides[emp.membershipId] ?? ''}
-                        onChange={(e) => setSandwichOverride(emp.membershipId, e.target.value)}
-                        className="w-20 rounded-md border border-amber-200 bg-amber-50/50 px-2 py-1 text-right text-xs focus:outline-none focus:ring-1 focus:ring-amber-300"
-                        title={
-                          isNp
-                            ? 'सप्ताहान्त अनुपस्थिति कट्टी (दिन)'
-                            : 'Saptahanta Anupasthiti Katti (days)'
-                        }
-                      />
-                      <span className="text-[10px] text-amber-600">{isNp ? 'सप्ता.' : 'sand.'}</span>
-                    </div>
-                  )}
                 </div>
               ))}
             </div>

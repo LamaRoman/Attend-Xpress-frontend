@@ -41,8 +41,6 @@ export interface PayrollRecord {
   holidaysInMonth: number
   daysPresent: number
   daysAbsent: number
-  /** Extra LOP days from Saptahanta Anupasthiti Katti (sandwich rule). Always 0 when the org has the feature disabled. */
-  sandwichPenaltyDays?: number
   overtimeHours: number
   /** Off-day/holiday work — days clocked in on a non-working day or holiday
    *  (excluded from Present; the hours are already inside overtimeHours). */

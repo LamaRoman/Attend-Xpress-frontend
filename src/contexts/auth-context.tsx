@@ -15,7 +15,6 @@ interface Organization {
   ssfEnabled: boolean
   citEnabled: boolean
   tdsEnabled: boolean
-  sandwichLeaveEnabled: boolean
 }
 
 interface PlanFeatures {
@@ -101,10 +100,6 @@ interface Features {
   // liveTracking is an alias of fieldTracking; routeReplay is its finer gate.
   liveTracking: boolean
   routeReplay: boolean
-  // Saptahanta Anupasthiti Katti (Weekend Sandwich Absence Deduction) —
-  // super-admin controlled, per org. When on, an absent working day
-  // adjacent to a weekend adds an extra +1 day LOP to the payslip.
-  sandwichLeave: boolean
 }
 
 interface AuthContextType {
@@ -268,7 +263,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // an alias so existing consumers (field-tracking page, AdminLayout) work.
     liveTracking: user?.planFeatures?.featureFieldTracking ?? false,
     routeReplay: user?.planFeatures?.featureRouteReplay ?? false,
-    sandwichLeave: user?.organization?.sandwichLeaveEnabled ?? false,
   }
 
   const hasInactiveEmployees = user?.hasInactiveEmployees ?? false

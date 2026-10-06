@@ -181,7 +181,6 @@ export default function EmployeeAttendancePage() {
   const [employee, setEmployee] = useState<Employee | null>(null)
   const [orgConfig, setOrgConfig] = useState<OrgConfig | null>(null)
   const [records, setRecords] = useState<AttendanceRecord[]>([])
-  const [sandwichDates, setSandwichDates] = useState<Set<string>>(new Set())
   const [holidayMap, setHolidayMap] = useState<Record<string, { name: string; nameNepali?: string }>>({})
   const [leaveDetails, setLeaveDetails] = useState<Record<string, { type: string; status: string; reason: string }>>({})
   // Employee-resolved working days from payrollContext (roster-aware)
@@ -220,7 +219,6 @@ export default function EmployeeAttendancePage() {
           setOrgConfig(d.orgConfig)
           setRecords(d.records)
           const ctx = d.payrollContext
-          setSandwichDates(ctx?.sandwichPenaltyDates ? new Set(ctx.sandwichPenaltyDates as string[]) : new Set())
           setHolidayMap(ctx?.holidayMap ?? {})
           setLeaveDetails(ctx?.leaveDetails ?? {})
           // Employee-resolved working days (roster-aware since PR #196) —
@@ -516,13 +514,6 @@ export default function EmployeeAttendancePage() {
                       color: 'bg-purple-50 text-purple-700 border-purple-200',
                     }]
                   : []),
-                ...(sandwichDates.size > 0
-                  ? [{
-                      label: language === 'NEPALI' ? 'सप्ताहान्त कट्टी' : 'Saptahanta Katti',
-                      value: sandwichDates.size,
-                      color: 'bg-orange-50 text-orange-700 border-orange-200',
-                    }]
-                  : []),
               ].map((s) => (
                 <div
                   key={s.label}
@@ -565,7 +556,6 @@ export default function EmployeeAttendancePage() {
                 presentDays={new Set(rows.filter(r => r.records.length > 0 && !offDayWorkDates.has(r.dateStr)).map(r => r.dateStr))}
                 lateDays={new Set(rows.filter(r => r.records[0]?.arrivalStatus === 'LATE').map(r => r.dateStr))}
                 offDayWorkDates={offDayWorkDates}
-                sandwichDates={sandwichDates}
                 rejectedLeaveDates={new Set(
                   Object.entries(leaveDetails)
                     .filter(([, l]) => l.status === 'REJECTED')
@@ -618,22 +608,15 @@ export default function EmployeeAttendancePage() {
                     const isPreJoinTbl = employee?.joinedAt ? dateStr < employee.joinedAt : false
 
                     if (!isWorkingDay && dayRecords.length === 0) {
-                      const isSandwiched = sandwichDates.has(dateStr)
                       return (
-                        <tr key={dateStr} className={isSandwiched ? 'bg-orange-50/50' : 'bg-slate-50/30'}>
-                          <td className={`px-4 py-3 ${isSandwiched ? 'text-orange-500' : 'text-slate-400'}`}>
+                        <tr key={dateStr} className="bg-slate-50/30">
+                          <td className="px-4 py-3 text-slate-400">
                             <span className="text-xs">
                               {formatDateLabel(dateStr, calendarMode, language)}
                             </span>
                           </td>
                           <td colSpan={4} className="px-4 py-3 text-xs">
-                            {isSandwiched ? (
-                              <span className="inline-flex items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700">
-                                {language === 'NEPALI' ? 'सप्ताहान्त कट्टी' : 'Saptahanta Katti'}
-                              </span>
-                            ) : (
-                              <span className="text-slate-300">Day off</span>
-                            )}
+                            <span className="text-slate-300">Day off</span>
                           </td>
                         </tr>
                       )
