@@ -124,6 +124,7 @@ export default function InactiveEmployeesPage() {
       )}
 
       {/* Warning banner */}
+      {!loading && employees.length > 0 && (
       <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
         <div className="flex items-start gap-3">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
@@ -139,6 +140,7 @@ export default function InactiveEmployeesPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Employee list */}
       {loading ? (
